@@ -1,0 +1,18 @@
+# Dependencies & build output
+node_modules/
+dist/
+coverage/
+
+# Secrets — ANTHROPIC_API_KEY lives only in the root .env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
