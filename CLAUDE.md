@@ -1,8 +1,10 @@
 # Backend
 
-NestJS API + BullMQ worker for the AI CV Builder. **Not scaffolded yet**: stack, modules and data
-model are in `docs/architecture.md` (§3–§10); API contract: `docs/api.md`; statuses:
-`docs/cv-statuses.md`.
+NestJS API + BullMQ worker for the AI CV Builder. **Not scaffolded yet.** Where code goes, the
+tables, the generation agent, verification, failure handling, auth and PDF rendering:
+`backend/docs/architecture.md`; why: `backend/docs/adr/`; backend terms: `backend/GLOSSARY.md`.
+Product, containers and stack: root `docs/architecture.md` §1–§4; API contract: `docs/api.md`;
+statuses: `docs/cv-statuses.md`.
 
 Dependencies are installed from the repo root (`pnpm install`): one workspace, one lockfile.
 
