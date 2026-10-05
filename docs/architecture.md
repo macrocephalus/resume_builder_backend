@@ -35,7 +35,6 @@ backend/src/
   agents/                  LLM layer — knows nothing about DB, HTTP or queue
     prompt/                PromptBuilder, escapeTags, system/*.system.ts (+ PROMPT_VERSION)
     draft/                 DraftAgent: tool loop with submit_draft
-    answer/                AnswerAgent (optional, root architecture §6.5)
     verify/                verifyDraft (pure): facts vs source + user facts
     llm.ts                 model factory; replaced by a scripted fake in tests
   pdf/                     render-cv-pdf.ts, templates/classic.ts, fonts/
@@ -131,7 +130,8 @@ Why a loop with one validating tool: [adr/0003](adr/0003-draft-agent-one-tool-lo
 
 ## 4. Verification — keeping the AI from inventing facts
 
-Every *fact* in the CV must be traceable to `source_text` or `facts`. `verifyDraft(submission,
+Every **claim** about the person in the CV must rest on `source_text` or on `facts` (the user's
+answers). `verifyDraft(submission,
 source, facts)` is pure; normalisation = lower-case, collapse whitespace, unify quotes/dashes.
 
 The CV may be in another language than the source, so text facts are checked through **evidence
@@ -183,7 +183,8 @@ used — there is nothing to check them against.
 - Every CV query filters by `user_id`; foreign CV ⇒ `404`, not `403`. The worker takes `user_id`
   from the job row.
 - Limits (config): 10 generations/user/hour, ≤ 2 in progress per user, 60 answers/hour,
-  ingest 20/min → `429` + `Retry-After`. `@nestjs/throttler` for login and ingest, counts in
+  ingest 20/min → `429` + `Retry-After`. The generation limit counts what the user started
+  (a CV created, a manual Retry), not automatic retries of an attempt. `@nestjs/throttler` for login and ingest, counts in
   Postgres for generations and answers.
 - Known simplifications (README): JWT can't be revoked before expiry; signup reveals that an email
   is taken; count-then-insert race on limits is accepted.

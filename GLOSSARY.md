@@ -14,5 +14,5 @@ One try of a generation job; a failed attempt is retried automatically until the
 _Avoid_: retry, run, try
 
 **Evidence**:
-A verbatim quote from the source or the user's facts, in their own language, that a statement in the draft rests on.
+A verbatim quote from the source or the user's facts, in their own language, that a claim in the draft rests on.
 _Avoid_: proof, citation, reference
