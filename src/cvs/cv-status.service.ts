@@ -1,8 +1,8 @@
 import type { CvStatus, GenerationStage } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, sql } from 'drizzle-orm'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
-import { cvs } from '../database/schema'
+import { cvQuestions, cvs } from '../database/schema'
 import { fromStatuses } from './from-statuses'
 
 /** Columns that change together with the status (the stage, the attempt, the error). */
@@ -48,6 +48,19 @@ export class CvStatusService {
       .where(and(eq(cvs.id, cvId), inArray(cvs.status, [...froms])))
       .returning({ id: cvs.id })
     return rows.length > 0
+  }
+
+  /**
+   * `needs_input → ready` once no question of the CV is open (the last one answered, skipped or
+   * about a removed item). `false` when one is still open or the CV was not `needs_input`.
+   */
+  async readyIfNoneOpen(cvId: string, executor: Executor): Promise<boolean> {
+    const [open] = await executor
+      .select({ count: count() })
+      .from(cvQuestions)
+      .where(and(eq(cvQuestions.cvId, cvId), eq(cvQuestions.status, 'open')))
+    if (open?.count !== 0) return false
+    return this.transition(cvId, 'ready', { from: ['needs_input'], executor })
   }
 
   /**

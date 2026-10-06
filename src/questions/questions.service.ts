@@ -10,7 +10,7 @@ import {
   targetExists,
 } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, count, eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
 import { validationError } from '../common/errors/validation-error'
@@ -71,7 +71,7 @@ export class QuestionsService {
         .update(cvQuestions)
         .set({ status: 'answered', answer, answeredAt: sql`now()` })
         .where(eq(cvQuestions.id, question.id))
-      await this.readyIfNoneOpen(cv.id, tx)
+      await this.statuses.readyIfNoneOpen(cv.id, tx)
     })
     return this.cvs.get(userId, cvId)
   }
@@ -84,7 +84,7 @@ export class QuestionsService {
         throw invalidState('A confirm question must be answered yes or no.')
       }
       await tx.update(cvQuestions).set({ status: 'skipped' }).where(eq(cvQuestions.id, question.id))
-      await this.readyIfNoneOpen(cv.id, tx)
+      await this.statuses.readyIfNoneOpen(cv.id, tx)
     })
     return this.cvs.get(userId, cvId)
   }
@@ -109,19 +109,5 @@ export class QuestionsService {
     if (cv.status !== 'needs_input') throw invalidState('This CV is not waiting for answers.')
     if (row.status !== 'open') throw invalidState('This question has already been closed.')
     return { cv, question: toQuestion(row) }
-  }
-
-  private async readyIfNoneOpen(cvId: string, tx: Executor): Promise<void> {
-    const [open] = await tx
-      .select({ count: count() })
-      .from(cvQuestions)
-      .where(and(eq(cvQuestions.cvId, cvId), eq(cvQuestions.status, 'open')))
-    if (open?.count !== 0) return
-    // the CV is locked and needs_input (openQuestion), so the move can't miss
-    const moved = await this.statuses.transition(cvId, 'ready', {
-      from: ['needs_input'],
-      executor: tx,
-    })
-    if (!moved) throw new Error(`CV ${cvId} did not move from needs_input to ready`)
   }
 }
