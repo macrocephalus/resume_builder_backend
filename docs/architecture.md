@@ -104,6 +104,7 @@ backend/
 │   │   ├── generation.processor.ts  worker: job row → CV → CAS to generating → attempt row →
 │   │   │                          DraftAgent → draft + questions → DraftSaver
 │   │   ├── draft-from-submission.ts  pure: item UUIDs, question index → id, dropEmptyItems, CvData
+│   │   ├── prepare-draft.ts       pure: verifyDraft → sanitise → draft → questions → counts
 │   │   ├── save-draft.ts          DraftSaver: one transaction: CAS, data, questions, requirements,
 │   │   │                          version, the attempt row closed
 │   │   ├── attempt-log.ts         open / close a generation_attempts row (tokens, steps, ms)
@@ -115,6 +116,8 @@ backend/
 │   │   ├── questions.service.ts       answerSchemaFor → applyAnswer (@cv/shared) → facts → CAS
 │   │   ├── new-question.ts            a question before it is stored; targetKey
 │   │   ├── build-auto-questions.ts    pure: findMissing + autoQuestionText
+│   │   ├── build-verifier-questions.ts  pure: confirm / cleared field / multi (computeMatch)
+│   │   ├── verifier-wording.ts        their texts per CV language
 │   │   └── select-questions.ts        pure: priority and caps (§3)
 │   ├── agents/                        LLM layer — knows nothing about DB, HTTP or queue
 │   │   ├── llm.ts                     the LANGUAGE_MODEL token + createLanguageModel; bound in
@@ -132,11 +135,11 @@ backend/
 │   │   │   ├── draft-submission.schema.ts
 │   │   │   ├── stop-when-accepted.ts
 │   │   │   └── tools/                 one file per tool
-│   │   │       └── submit-draft.tool.ts   createSubmitDraftTool({ source, facts })
+│   │   │       └── submit-draft.tool.ts   createSubmitDraftTool({ source, facts }): verifyDraft
 │   │   └── verify/
 │   │       ├── verify-draft.ts        pure: problems by the rules of §4
-│   │       ├── sanitise.ts            pure: remove/clear what failed → verifier questions
-│   │       └── normalize.ts           case, whitespace, quotes, dashes, phone digits
+│   │       ├── sanitise.ts            pure: remove/clear what failed → claims, fields, skills
+│   │       └── normalise.ts           case, whitespace, quotes, dashes, phone digits
 │   └── pdf/
 │       ├── pdf.controller.ts          GET /api/cvs/:id/pdf (getOwned + status)
 │       ├── render-cv-pdf.ts           CvData + language → Buffer
@@ -313,12 +316,16 @@ error is thrown, not sent back to the model): [adr/0003](adr/0003-draft-agent-on
 
 ### Which questions are kept
 
-Three sources: **model** (`questions`), **verifier** (`sanitise`: `confirm` per removed claim, one
-`multi` for unconfirmed skills ∪ uncovered `skill` requirements, ≤ 8 options) and **auto**
-(`buildAutoQuestions` over the final draft). A question whose target doesn't exist is dropped; a
-model question about a field that also has an auto question replaces the auto one.
-`selectQuestions` keeps at most 12 open questions, in this order: auto → `confirm` (≤ 5) → the
-`multi` → model (≤ 7, in the model's order).
+Three sources: **model** (`questions`), **verifier** (`buildVerifierQuestions` over what
+`sanitise` took out: a `confirm` per removed bullet, a `text` — a `choice` of CEFR levels for a
+language level — per cleared item field the auto questions don't cover, one `multi` for unconfirmed
+skills ∪ uncovered `skill` requirements, ≤ 8 options) and **auto** (`buildAutoQuestions` over the
+final draft). A question whose target can't take an answer (`applyAnswer`) is dropped; a model
+question about a field that also has an auto or a cleared-field question replaces it; a `confirm`
+is never replaced. `selectQuestions` keeps at most 12 open questions, in this order: auto →
+`confirm` (≤ 5) → cleared fields → the `multi` → model (≤ 7, in the model's order); the caps are
+`QUESTIONS` in `config/limits.ts`. The verifier's questions are worded in the CV language by
+`questions/verifier-wording.ts` (the auto ones by `@cv/shared`).
 
 ## 4. Verification — keeping the AI from inventing facts
 
@@ -333,21 +340,31 @@ technology names) is checked directly ([adr/0004](adr/0004-evidence-quotes-in-so
 | field | rule | if it fails after the loop |
 |---|---|---|
 | experience / project bullet | `evidence` quote (≥ 8 chars) found in source/facts; every number in the bullet appears in that quote | removed → `confirm` question with the claim |
-| title, company, institution, degree, project name, certification name and issuer, language name | substring of source/facts, **or** an `evidence` quote found in source/facts (translated text) | cleared → `text` question |
-| period, certification year | every number in it appears in source/facts | cleared → `text` question |
-| language level | appears in source/facts | cleared → `choice` question |
-| email, phone, links | verbatim (phone compared by digits) | cleared → auto question |
-| skills | appears in source/facts (tech names are language-neutral), or has an `evidence` quote | moved to the `multi` question |
-| summary | every number and every skill-like token is already in verified data | cleared → auto question |
-| question target | points to an existing field | question dropped |
-| requirements | bounded length/count, ≥ 1 keyword | invalid entries dropped (they describe the role, not the person) |
-| suggested roles | ≤ 3, ≤ 100 chars | trimmed |
+| title, company, institution, degree, project name, certification name and issuer, language name and level | substring of source/facts, **or** an `evidence` quote (≥ 4 chars) found in source/facts (translated text, "вище середнього" for "Upper-Intermediate") | cleared → `text` question (`choice` for a level); a job's title / company / period and an institution get the auto question instead |
+| period, certification year | every number in it appears in source/facts | cleared → as above |
+| email, phone, contact links, project URL | verbatim (phone by digits, a link without scheme, `www.` and trailing `/`) | cleared → the auto question, if the contacts now lack both email and phone |
+| skills | appears in source/facts as a whole word (tech names are language-neutral), or has an `evidence` quote | moved to the `multi` question |
+| summary | every number, and every skill-like word (Node.js, C++, PostgreSQL, AWS, K8s) or skill of the draft it names, is in source/facts or a verified skill | the sentences that hold one are dropped; an empty summary gets the auto question |
+| question target | something `applyAnswer` can write into: a contact field, the summary, the skills, the whole experience block, a field of an existing item | question dropped |
+| requirements | a label and ≥ 1 keyword (length and count are the schema's) | invalid entries dropped (they describe the role, not the person) |
+| suggested roles | not blank (length ≤ 100 and count ≤ 3 are the schema's) | blank ones dropped |
+
+Normalisation (`agents/verify/normalise.ts`): NFKC, lower case, one kind of quote and dash, single
+spaces; numbers are compared by their digits ("1,200" = "1 200", "03" = "3"; "03.2019" is two
+numbers, a decimal part has at most two digits). Facts count by their
+answers only — a question's wording is not something the user said — so a `confirm` "yes" is
+stored with the claim as its answer (ticket 08). The full name and location are
+not checked.
 
 Known limit (README): a quote proves the fact exists in the source, not that its translation is
 faithful — translation quality is trusted to the model, numbers and names are not.
 
 `verification` stores the counts; the UI shows "12 bullets confirmed by quotes from your text,
-2 sent to you to confirm, 1 skill moved to suggestions". Confidence scores from the model are not
+2 sent to you to confirm, 1 skill moved to suggestions": `verified` = bullets in the saved draft,
+`sentToConfirm` = `confirm` questions kept, `skillsToConfirm` = removed skills offered in the kept
+`multi`, `cleared` = cleared fields a kept question asks for (the verifier's or the auto one).
+What the caps cut — claims past the fifth, a `multi` past the twelfth question — or what belonged
+to an item dropped as empty is left out of the draft without a question: never added unasked. Confidence scores from the model are not
 used — there is nothing to check them against.
 
 ## 5. Failure handling

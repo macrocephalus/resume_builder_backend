@@ -12,6 +12,7 @@ skips a question and the field stays empty; after the last question the CV is `r
 is also kept as a fact for the next generation.
 
 - [ ] `POST /api/cvs/:id/questions/:questionId/answer`: `404` for a foreign CV or an unknown question; `409 INVALID_STATE` when the CV is not `needs_input`, the question is not `open`, the body's `kind` differs from the question's, or the question's target item no longer exists; body validated by the shared `answerSchemaFor(question)` → `400 VALIDATION_ERROR`
+- [ ] A `confirm` "yes" is kept as a fact whose answer is the claim itself (the verifier reads only the answers of facts, backend architecture §4), so a confirmed bullet passes verification in later generations
 - [ ] The answer is applied with the shared `applyAnswer`, the result parsed by `CvData`; in one transaction: `data`, `facts` appended with `{ question, answer }`, question `answered` with `answered_at`, `version + 1`, and CAS `needs_input → ready` when no open question is left; `200 { cv }`
 - [ ] `POST …/skip`: `text`/`choice`/`multi` only (`confirm` → `409 INVALID_STATE`); question `skipped`, data unchanged, `version` unchanged, CAS to `ready` when it was the last open one; `200 { cv }`
 - [ ] No hourly limit on answers
