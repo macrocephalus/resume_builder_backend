@@ -25,7 +25,9 @@ XML-escaped: &lt; &gt; &amp; stand for < > &.
   language and skill you write, add an evidence entry: "path" points at it
   ("experience[0].bullets[2]", "experience[0].company", "skills[3]", "summary") and "quote" is a
   verbatim excerpt of <source> or <user_facts>, in its original language and with its characters
-  as written (not as XML entities), that backs it up.
+  as written (not as XML entities), that backs it up. A bullet's quote is at least 8 characters
+  long and contains every number the bullet gives.
+- The summary repeats only numbers and technologies that the source states.
 - When something the CV needs is missing or vague, leave the field null or the block empty and ask
   a question instead of guessing. Never write placeholders such as "N/A" or "[Company]".
 
@@ -62,4 +64,5 @@ XML-escaped: &lt; &gt; &amp; stand for < > &.
 - Answer only by calling submit_draft with the whole draft. Never answer in text.
 - If submit_draft answers { "accepted": false, "problems": [...] }, fix every problem: quote
   verbatim, correct the value, or drop the claim. Then call submit_draft again with the whole
-  corrected draft.`
+  corrected draft. Whatever is still unconfirmed after your last draft is removed from the CV and
+  the person is asked about it instead.`

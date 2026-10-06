@@ -46,7 +46,17 @@ const SECTION_ORDER: DraftSubmission['cv']['sectionOrder'] = [
   'languages',
 ]
 
-/** A submission with every required part filled in: it saves as a `ready` CV. */
+/** A source over the 80-character minimum that backs every claim of `completeSubmission`. */
+export const SOURCE_TEXT = [
+  'Olena Hnatiuk, olena@example.com, Kyiv.',
+  'Backend engineer at Fintory since 2019. Eight years of Node.js and PostgreSQL in payments.',
+  'Moved card authorisations to an outbox pattern. Built the payments API. English.',
+].join('\n')
+
+/**
+ * A submission with every required part filled in, each claim backed by `SOURCE_TEXT`: it is
+ * accepted on the first step and saves as a `ready` CV.
+ */
 export const completeSubmission = (): DraftSubmission => ({
   cv: {
     contacts: {
@@ -72,11 +82,14 @@ export const completeSubmission = (): DraftSubmission => ({
     languages: [{ name: 'English', level: null }],
     sectionOrder: SECTION_ORDER,
   },
-  evidence: [{ path: 'experience[0].company', quote: 'Fintory' }],
+  evidence: [
+    { path: 'experience[0].bullets[0]', quote: 'Moved card authorisations to an outbox pattern' },
+    { path: 'experience[0].bullets[1]', quote: 'Built the payments API' },
+  ],
   questions: [],
   requirements: [
     { label: 'Node.js', kind: 'skill', keywords: ['node.js'] },
-    { label: 'Kubernetes', kind: 'skill', keywords: ['kubernetes'] },
+    { label: 'Kubernetes in production', kind: 'experience', keywords: ['kubernetes'] },
   ],
   suggestedRoles: ['Node.js Tech Lead'],
 })

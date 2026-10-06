@@ -1,4 +1,4 @@
-import type { CvSection, Question, QuestionTarget } from '@cv/shared'
+import type { CvSection, ItemSection, Question, QuestionTarget } from '@cv/shared'
 
 /** A question about to be stored: open, unanswered, its position given when saved. */
 export type NewQuestion = Pick<
@@ -20,3 +20,6 @@ export const questionTarget = (
 /** One key per target, so two questions about the same field can be told apart from others. */
 export const targetKey = ({ section, itemId, field }: NewQuestion['target']): string =>
   [section, itemId ?? '', field ?? ''].join('|')
+
+/** Where an item of the model's submission ended up: its id, or `undefined` once dropped. */
+export type ItemIdOf = (section: ItemSection, itemIndex: number) => string | undefined

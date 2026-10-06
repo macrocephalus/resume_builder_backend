@@ -9,8 +9,14 @@ import { DATABASE, type Database } from '../src/database/database.module'
 import { cvQuestions, cvs, generationAttempts, generationJobs } from '../src/database/schema'
 import { type TestApp, createTestApp } from './helpers/app'
 import { signUp } from './helpers/auth'
-import { SOURCE_TEXT, createCv } from './helpers/cvs'
-import { completeSubmission, scriptedModel, submitStep, textStep } from './helpers/model'
+import { createCv } from './helpers/cvs'
+import {
+  SOURCE_TEXT,
+  completeSubmission,
+  scriptedModel,
+  submitStep,
+  textStep,
+} from './helpers/model'
 import { type TestWorker, startTestWorker, waitForCv, waitUntil } from './helpers/worker'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -67,7 +73,7 @@ describe('generation, happy path (scripted model)', () => {
     })
     expect(cv.requirements.map((item) => [item.label, item.id])).toEqual([
       ['Node.js', expect.stringMatching(UUID)],
-      ['Kubernetes', expect.stringMatching(UUID)],
+      ['Kubernetes in production', expect.stringMatching(UUID)],
     ])
     expect(cv.questions.map((q) => [q.origin, q.kind, q.target])).toEqual([
       ['auto', 'text', { section: 'contacts', field: 'email' }],
@@ -119,6 +125,74 @@ describe('generation, happy path (scripted model)', () => {
       openQuestions: 0,
       match: { covered: 1, total: 2 },
     })
+  })
+
+  it('sends the problems back to the model and saves the revised draft', async () => {
+    const invented = completeSubmission()
+    invented.cv.experience[0]?.bullets.push('Led a team of 12 engineers')
+    const stages: Array<string | null> = []
+    const prompts: string[] = []
+    const steps = [invented, completeSubmission()]
+    const model = new MockLanguageModelV4({
+      modelId: 'scripted',
+      doGenerate: async ({ prompt }) => {
+        const [row] = await db.select({ stage: cvs.stage }).from(cvs)
+        stages.push(row?.stage ?? null)
+        prompts.push(JSON.stringify(prompt))
+        return submitStep(steps[stages.length - 1])
+      },
+    })
+    worker = await startTestWorker(model)
+    const { cookie } = await signUp(app.server())
+    const created = await createCv(app.server(), cookie)
+
+    const cv = await waitForCv(app.server(), cookie, created.id)
+    expect(stages).toEqual(['drafting', 'revising'])
+    expect(prompts[1]).toContain(
+      'experience[0].bullets[2]: no evidence quote — add a verbatim quote from the source or drop the claim',
+    )
+    expect(cv).toMatchObject({
+      status: 'ready',
+      questions: [],
+      verification: { verified: 2, sentToConfirm: 0, skillsToConfirm: 0, cleared: 0 },
+    })
+    expect(await attempts()).toEqual([
+      expect.objectContaining({ status: 'succeeded', agentSteps: 2 }),
+    ])
+  })
+
+  it('turns what stays unconfirmed after three steps into questions', async () => {
+    const unbacked = () => {
+      const submission = completeSubmission()
+      submission.cv.experience[0]?.bullets.push('Led a team of 12 engineers')
+      submission.cv.skills.push('Kubernetes')
+      return submission
+    }
+    worker = await startTestWorker(
+      scriptedModel(submitStep(unbacked()), submitStep(unbacked()), submitStep(unbacked())),
+    )
+    const { cookie } = await signUp(app.server())
+    const created = await createCv(app.server(), cookie)
+
+    const cv = await waitForCv(app.server(), cookie, created.id)
+    expect(cv).toMatchObject({
+      status: 'needs_input',
+      verification: { verified: 2, sentToConfirm: 1, skillsToConfirm: 1, cleared: 0 },
+    })
+    expect(cv.data?.experience[0]?.bullets).toEqual(completeSubmission().cv.experience[0]?.bullets)
+    expect(cv.data?.skills).toEqual(['Node.js', 'PostgreSQL'])
+    expect(cv.questions.map((q) => [q.origin, q.kind, q.claim, q.options])).toEqual([
+      ['verifier', 'confirm', 'Led a team of 12 engineers', []],
+      ['verifier', 'multi', null, ['Kubernetes']],
+    ])
+    expect(cv.questions[0]?.target).toEqual({
+      section: 'experience',
+      itemId: cv.data?.experience[0]?.id,
+      field: 'bullets',
+    })
+    expect(await attempts()).toEqual([
+      expect.objectContaining({ status: 'succeeded', agentSteps: 3 }),
+    ])
   })
 
   it('shows the drafting stage while the model writes', async () => {

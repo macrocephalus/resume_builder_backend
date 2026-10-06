@@ -1,5 +1,6 @@
 import { tool } from 'ai'
 import type { PromptFact } from '../../prompt/prompt-fact'
+import { describeProblem, verifyDraft } from '../../verify/verify-draft'
 import { type DraftSubmission, draftSubmissionSchema } from '../draft-submission.schema'
 
 export const SUBMIT_DRAFT = 'submit_draft'
@@ -24,19 +25,22 @@ export const verdictOf = (output: unknown): boolean | undefined =>
     ? output.accepted
     : undefined
 
-/** The attempt's material the tool checks a submission against (verification, ticket 06). */
+/** The attempt's material the tool checks a submission against. */
 export type SubmitDraftContext = { source: string; facts: readonly PromptFact[] }
 
 /**
  * `submit_draft`, built per attempt. The input is validated by Zod before `execute`; an invalid
- * one is returned to the model as a tool error and the loop goes on.
+ * one is returned to the model as a tool error and the loop goes on. A valid one is verified
+ * against the source and the facts: accepted, or one line per problem for the model to fix.
  */
-export const createSubmitDraftTool = (_context: SubmitDraftContext) =>
+export const createSubmitDraftTool = ({ source, facts }: SubmitDraftContext) =>
   tool({
     description: SUBMIT_DRAFT_DESCRIPTION,
     inputSchema: draftSubmissionSchema,
-    // every schema-valid draft is accepted until the verifier lands (ticket 06)
-    execute: async (_submission: DraftSubmission): Promise<SubmitDraftResult> => ({
-      accepted: true,
-    }),
+    execute: async (submission: DraftSubmission): Promise<SubmitDraftResult> => {
+      const problems = verifyDraft(submission, source, facts)
+      return problems.length === 0
+        ? { accepted: true }
+        : { accepted: false, problems: problems.map(describeProblem) }
+    },
   })

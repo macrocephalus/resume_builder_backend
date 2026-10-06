@@ -6,10 +6,10 @@ import {
   dropEmptyItems,
 } from '@cv/shared'
 import type { DraftSubmission, SubmissionQuestion } from '../agents/draft/draft-submission.schema'
-import { type NewQuestion, questionTarget } from '../questions/new-question'
+import { type ItemIdOf, type NewQuestion, questionTarget } from '../questions/new-question'
 
 /** The draft as it will be saved, and the model's questions with their targets resolved. */
-export type DraftFromSubmission = { data: CvData; questions: NewQuestion[] }
+export type DraftFromSubmission = { data: CvData; questions: NewQuestion[]; itemIdOf: ItemIdOf }
 
 const isItemSection = (section: string): section is ItemSection =>
   (ITEM_SECTIONS as readonly string[]).includes(section)
@@ -52,6 +52,7 @@ const itemIdsOf = (data: CvData): Set<string> =>
  * The model's submission as a draft: every item gets a UUID, question targets go from item index
  * to item id (a target that points nowhere drops the question), empty items and blank entries are
  * dropped (with the questions about them), and `CvData` checks the result as the last guard.
+ * `itemIdOf` resolves other index targets (the verifier's) the same way.
  */
 export const draftFromSubmission = (
   submission: DraftSubmission,
@@ -68,5 +69,9 @@ export const draftFromSubmission = (
     questions: resolved.filter(
       (question) => question.target.itemId === undefined || kept.has(question.target.itemId),
     ),
+    itemIdOf: (section, itemIndex) => {
+      const id = identified[section][itemIndex]?.id
+      return id !== undefined && kept.has(id) ? id : undefined
+    },
   }
 }

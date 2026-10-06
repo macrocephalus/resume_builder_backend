@@ -16,6 +16,8 @@ export const SUBMISSION_LIMITS = {
   questions: 7,
   requirements: 12,
   suggestedRoles: 3,
+  /** characters of one suggested role */
+  role: 100,
   evidence: 200,
   options: 8,
 } as const
@@ -65,6 +67,8 @@ export const draftSubmissionSchema = z.object({
     .max(SUBMISSION_LIMITS.evidence),
   questions: z.array(submissionQuestionSchema).max(SUBMISSION_LIMITS.questions),
   requirements: z.array(requirementSchema.omit({ id: true })).max(SUBMISSION_LIMITS.requirements),
-  suggestedRoles: z.array(z.string().min(1).max(100)).max(SUBMISSION_LIMITS.suggestedRoles),
+  suggestedRoles: z
+    .array(z.string().min(1).max(SUBMISSION_LIMITS.role))
+    .max(SUBMISSION_LIMITS.suggestedRoles),
 })
 export type DraftSubmission = z.infer<typeof draftSubmissionSchema>

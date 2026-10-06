@@ -1,21 +1,30 @@
 import type { GenerationStage } from '@cv/shared'
 import { describe, expect, it } from 'vitest'
 import {
+  SOURCE_TEXT,
   completeSubmission,
   scriptedModel,
   submitStep,
   textStep,
 } from '../../../test/helpers/model'
 import type { PromptInput } from '../prompt/prompt-builder'
+import type { DraftSubmission } from './draft-submission.schema'
 import { runDraftAgent } from './draft.agent'
 
 const input: PromptInput = {
-  source: 'Olena Hnatiuk, backend engineer at Fintory since 2019.',
+  source: SOURCE_TEXT,
   facts: [],
   targetRole: 'Senior Backend Engineer',
   roleContext: null,
   language: 'en',
   today: new Date('2026-10-06T00:00:00Z'),
+}
+
+/** `completeSubmission` with a bullet the source doesn't back. */
+const withInventedBullet = (bullet = 'Led a team of 12 engineers'): DraftSubmission => {
+  const submission = completeSubmission()
+  submission.cv.experience[0]?.bullets.push(bullet)
+  return submission
 }
 
 const run = async (...steps: Parameters<typeof scriptedModel>) => {
@@ -68,6 +77,32 @@ describe('runDraftAgent', () => {
     expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain('tool-result')
     expect(result.submission).toEqual(completeSubmission())
     expect(result.steps).toBe(2)
+  })
+
+  it('returns the problems to the model, and ends when the revised draft is accepted', async () => {
+    const invented = withInventedBullet()
+    const { result, stages, model } = await run(
+      submitStep(invented),
+      submitStep(completeSubmission()),
+    )
+    expect(model.doGenerateCalls).toHaveLength(2)
+    expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
+      'experience[0].bullets[2]: no evidence quote — add a verbatim quote from the source or drop the claim',
+    )
+    expect(stages).toEqual(['drafting', 'verifying', 'revising', 'verifying'])
+    expect(result.submission).toEqual(completeSubmission())
+    expect(result.steps).toBe(2)
+  })
+
+  it('stops after three rejected drafts and returns the last one', async () => {
+    const { result, model } = await run(
+      submitStep(withInventedBullet()),
+      submitStep(withInventedBullet()),
+      submitStep(withInventedBullet('Cut costs by 30%')),
+      submitStep(completeSubmission()),
+    )
+    expect(model.doGenerateCalls).toHaveLength(3)
+    expect(result.submission?.cv.experience[0]?.bullets.at(-1)).toBe('Cut costs by 30%')
   })
 
   it('has no submission when the model answers in text', async () => {

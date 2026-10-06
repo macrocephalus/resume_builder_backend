@@ -126,7 +126,11 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
         this.logger.warn({ ...ids, steps: run.steps }, 'no valid submit_draft; CV failed')
         return
       }
-      const draft = prepareDraft(run.submission, cv.language, randomUUID)
+      const draft = prepareDraft(
+        run.submission,
+        { source: cv.sourceText, facts: cv.facts, language: cv.language },
+        randomUUID,
+      )
       await this.setStage(cv.id, 'saving')
       const saved = await this.saver.save({
         cvId: cv.id,

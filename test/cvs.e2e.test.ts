@@ -15,7 +15,8 @@ import { cvQuestions, cvs, generationJobs } from '../src/database/schema'
 import { GENERATION_QUEUE } from '../src/generation/generation.queue'
 import { type TestApp, createTestApp } from './helpers/app'
 import { signUp } from './helpers/auth'
-import { SOURCE_TEXT, createCv, newCvBody } from './helpers/cvs'
+import { createCv, newCvBody } from './helpers/cvs'
+import { SOURCE_TEXT } from './helpers/model'
 
 const expectError = (response: request.Response, status: number, code: string) => {
   expect(response.status).toBe(status)

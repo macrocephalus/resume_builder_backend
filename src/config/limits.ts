@@ -1,6 +1,6 @@
 /**
  * The numbers the server is tuned by, in one place: timeouts, generation, the session, throttles
- * now; generations per hour and question caps as their tickets land.
+ * and the questions of a draft now; generations per hour as its ticket lands.
  */
 export const TIMEOUTS = {
   /** A Postgres connection that cannot be made fails fast, so `/api/health` answers 503. */
@@ -47,4 +47,16 @@ export const THROTTLES = {
   login: { limit: 30, ttlMs: 60_000 },
   /** Per user, so parsing PDFs can't be used to load the server. */
   ingest: { limit: 20, ttlMs: 60_000 },
+} as const
+
+/** The questions a new draft is saved with (backend architecture §3, "Which questions are kept"). */
+export const QUESTIONS = {
+  /** Open questions of one draft. */
+  open: 12,
+  /** Bullets offered back as yes/no claims. */
+  confirm: 5,
+  /** Questions the model wrote, in its order. */
+  model: 7,
+  /** Options of the one tick-what-applies skills question. */
+  multiOptions: 8,
 } as const

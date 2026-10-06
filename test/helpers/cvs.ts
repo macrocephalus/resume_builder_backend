@@ -2,13 +2,7 @@ import { type Cv, type CreateCvBody, cvResponseSchema } from '@cv/shared'
 import request from 'supertest'
 import type { App } from 'supertest/types'
 import { expect } from 'vitest'
-
-/** A source over the 80-character minimum. */
-export const SOURCE_TEXT = [
-  'Olena Hnatiuk, backend engineer in Kyiv.',
-  'Eight years of Node.js and PostgreSQL at a payments company.',
-  'Moved card authorisations to an outbox pattern.',
-].join('\n')
+import { SOURCE_TEXT } from './model'
 
 type NewCv = Partial<Omit<CreateCvBody, 'fromCvId'>> & Record<string, unknown>
 

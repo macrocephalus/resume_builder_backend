@@ -102,6 +102,15 @@ describe('draftFromSubmission', () => {
     expect(questions).toEqual([])
   })
 
+  it('tells the id an item got, and nothing for an item dropped as empty', () => {
+    const submission = completeSubmission()
+    submission.cv.experience.push({ title: null, company: null, period: null, bullets: [] })
+    const { data, itemIdOf } = draftFromSubmission(submission, sequentialIds())
+    expect(itemIdOf('experience', 0)).toBe(data.experience[0]?.id)
+    expect(itemIdOf('experience', 1)).toBeUndefined()
+    expect(itemIdOf('projects', 0)).toBeUndefined()
+  })
+
   it('turns a choice without two options into a text question', () => {
     const { questions } = draftFromSubmission(
       withQuestions([
