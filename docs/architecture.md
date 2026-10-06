@@ -100,22 +100,32 @@ backend/
 │   │   ├── generation.queue.ts    queue name, job data { cvId }; attempts 3, backoff 5 s
 │   │   ├── generation.producer.ts job row in the CV's transaction, then add() (2 s at most);
 │   │   │                          add() fails → log, 202
-│   │   ├── generation.processor.ts  worker: attempt row → DraftAgent → saveDraft
-│   │   ├── save-draft.ts          one transaction: data, questions, requirements, version, CAS
+│   │   ├── generation.module.ts   the worker's half: processor, model token, DraftSaver (above cvs)
+│   │   ├── generation.processor.ts  worker: job row → CV → CAS to generating → attempt row →
+│   │   │                          DraftAgent → draft + questions → DraftSaver
+│   │   ├── draft-from-submission.ts  pure: item UUIDs, question index → id, dropEmptyItems, CvData
+│   │   ├── save-draft.ts          DraftSaver: one transaction: CAS, data, questions, requirements,
+│   │   │                          version, the attempt row closed
+│   │   ├── attempt-log.ts         open / close a generation_attempts row (tokens, steps, ms)
+│   │   ├── generation-errors.ts   error_code → user text (docs/cv-statuses.md, failed)
 │   │   ├── classify-error.ts      pure: SDK error → { code, retryable } (§5)
-│   │   └── queue-recovery.service.ts  on start + every 60 s; stalled attempt rows → failed
+│   │   └── queue-recovery.service.ts  on start + every 60 s: lost jobs back on the queue
 │   ├── questions/
 │   │   ├── questions.controller.ts    answer, skip
 │   │   ├── questions.service.ts       answerSchemaFor → applyAnswer (@cv/shared) → facts → CAS
+│   │   ├── new-question.ts            a question before it is stored; targetKey
 │   │   ├── build-auto-questions.ts    pure: findMissing + autoQuestionText
 │   │   └── select-questions.ts        pure: priority and caps (§3)
 │   ├── agents/                        LLM layer — knows nothing about DB, HTTP or queue
-│   │   ├── llm.ts                     model factory (DI token; MockLanguageModelV4 in tests)
+│   │   ├── llm.ts                     the LANGUAGE_MODEL token + createLanguageModel; bound in
+│   │   │                              GenerationModule, to MockLanguageModelV4 in tests
 │   │   ├── prompt/
-│   │   │   ├── prompt-builder.ts      → { instructions, message }: static first (§3)
-│   │   │   ├── escape-tags.ts
+│   │   │   ├── prompt-builder.ts      → { instructions, message }: static first (§3);
+│   │   │   │                          PROMPT_VERSION (hash of the static part)
+│   │   │   ├── prompt-fact.ts
+│   │   │   ├── escape-tags.ts         & < > as XML entities, so data can't close a tag
 │   │   │   └── system/
-│   │   │       ├── draft.system.ts    the rules + PROMPT_VERSION (hash of the static part)
+│   │   │       ├── draft.system.ts    the rules
 │   │   │       └── draft.example.ts   a static submit_draft example
 │   │   ├── draft/
 │   │   │   ├── draft.agent.ts         ToolLoopAgent: tools, stopWhen, timeout, hooks → onStage
@@ -151,7 +161,11 @@ BullMQ is the 5.x line: 6.x moves the Redis client to a peer dependency and was 
 
 Rules:
 - Ownership checks live in `cvs`; other modules get a CV only through `CvsService.getOwned(id, userId)`.
-- Only `CvStatusService` writes `cvs.status`.
+- Only `CvStatusService` writes `cvs.status` (a CAS on the machine's from-statuses, optionally
+  narrowed: a generation's result is saved only into a CV still `generating`).
+- Errors that may carry user data (a failed query's parameters, the AI SDK's request body) are
+  logged and stored through `safeError` (`common/logging/safe-error.ts`): name, message, codes,
+  call frames.
 - `generation/` is two modules so the graph has no cycle: `GenerationQueueModule` (the queue and
   the producer) sits below `cvs`, which uses it to start a generation; the processor's module sits
   above `cvs`, which it needs for statuses and saving.
@@ -162,7 +176,9 @@ Rules:
   `selectQuestions`, `classifyError`, `patchCv`, `renderCvPdf`) have no I/O and carry most unit
   tests. `applyAnswer`, `findMissing`, `autoQuestionText` and `computeMatch` come from
   `@cv/shared`, so the server never words an auto question or applies an answer its own way.
-- `agents/` imports only `@cv/shared` and the AI SDK and returns plain results; `generation/`
+- `agents/` imports only `@cv/shared`, the AI SDK and `zod` and returns plain results; its run
+  bounds (`DRAFT_AGENT_LIMITS`) sit next to the agent, and the BullMQ lock is derived from them in
+  `generation.queue.ts`; `generation/`
   decides what to persist.
 - Every module imports `@cv/shared` for schemas and rules; `backend` never imports `frontend`.
 
@@ -284,7 +300,7 @@ keeps step 1); `maxOutputTokens: 16_000` per step (thinking can't be turned off 
 its errors go back to the model; request-level automatic prompt caching on. Worker concurrency 4
 (env).
 
-`stage` is written from the SDK hooks: `onStepStart` on step 0 → `drafting`,
+`stage` is written (`CvStatusService.setStage`, only while `generating`) from the SDK hooks: `onStepStart` on step 0 → `drafting`,
 `onToolExecutionStart` → `verifying`, `onStepEnd` with `accepted: false` → `revising`, after the
 loop → `saving`. The SDK swallows hook errors, so the write is best effort and logged — `stage` is
 only progress text.
@@ -348,7 +364,7 @@ processor throw BullMQ's `UnrecoverableError`.
 
 | failure | handling |
 |---|---|
-| worker crash mid-attempt | BullMQ stalled-job detection re-runs it; CAS writes make re-runs idempotent; the job's attempt rows left `running` are closed as `failed` (`stalled`) |
+| worker crash mid-attempt | BullMQ stalled-job detection re-runs it; the new attempt finds its CV still `generating`, takes it over (`resumeGenerating`) and closes the job's attempt rows left `running` as `failed` (`stalled`); every other write is a CAS, so the re-run is idempotent |
 | Redis wiped / enqueue failed | on worker start and every 60 s: re-enqueue CVs in `queued`/`generating`/`retrying` that have no live BullMQ job (same jobId, so duplicates are ignored); `POST /api/cvs` still answers `202` and logs the failed `add()` |
 | CV deleted during generation | final CAS hits 0 rows → result discarded |
 | stale tab / two devices edit | `version` mismatch → `409 VERSION_CONFLICT` |

@@ -44,7 +44,8 @@ neither covers a case, follow the established NestJS / Node practice and say why
 **Modules and dependencies.**
 - The module graph is acyclic and points one way: feature modules (`auth`, `cvs`, `questions`,
   `generation`, …) → `limits`, `agents`, `pdf` → `common`, `database`, `redis`, `config`. Lower
-  modules never import higher ones; `agents/` imports only `@cv/shared` and the AI SDK.
+  modules never import higher ones; `agents/` imports only `@cv/shared`, the AI SDK and `zod`
+  (the tool schemas), so the bounds of an agent run live next to the agent, not in `config/`.
 - No circular imports between files and no `forwardRef` (both fail `pnpm lint`). If two modules
   need each other, move what they share into a lower module or invert the call (the caller passes
   a callback / the lower module returns data); never break a cycle with `forwardRef` or a lazy
