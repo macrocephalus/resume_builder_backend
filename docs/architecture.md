@@ -43,7 +43,9 @@ backend/src/
 Rules:
 - Ownership checks live in `cvs`; other modules get a CV only through `CvsService.getOwned(id, userId)`.
 - Pure functions (`PromptBuilder`, `verifyDraft`, `applyAnswer`, `buildAutoQuestions`,
-  `computeMatch`, `renderCvPdf`) have no I/O and carry most unit tests.
+  `computeMatch`, `renderCvPdf`) have no I/O and carry most unit tests. `buildAutoQuestions` takes
+  the parts from `findMissing` and their text and label from `autoQuestionText` (`@cv/shared`), so
+  it never words a question itself.
 - `agents/` returns plain results; `generation/` decides what to persist.
 - The api runs the migrations on start; the worker (`worker.ts`,
   `NestFactory.createApplicationContext`) loads only the BullMQ processor and the agents.
@@ -61,7 +63,7 @@ Rules:
 | parent_cv_id | uuid null → cvs, set null | set when created "for another role" from this CV |
 | title | text | defaults to `target_role`, user-editable |
 | target_role | text | 2–100 chars, required, immutable |
-| role_note | text null | ≤ 1 000 chars, optional, immutable |
+| role_context | text null | ≤ 5 000 chars, optional, immutable; describes the role, never the person |
 | language | text | `CvLanguage` code (root §6.7), default `en`, immutable |
 | source_type | `text` \| `pdf` | |
 | source_filename | text null | for display only |
@@ -92,11 +94,11 @@ No `cv_sources` table and no job-level status: [adr/0002](adr/0002-one-cv-status
 
 ## 3. DraftAgent — an AI SDK v7 tool loop
 
-Input: `source_text`, `target_role`, `role_note`, `language`, `facts`, today's date (UTC).
+Input: `source_text`, `target_role`, `role_context`, `language`, `facts`, today's date (UTC).
 
 `PromptBuilder` puts static rules from `agents/prompt/system/` into `system` and user data into
 one message with escaped tags: `<today>`, `<cv_language>` (English name from the allow-list, e.g.
-"Ukrainian"), `<target_role>`, `<role_note>`, `<source>`, `<user_facts>`. Rules say content of
+"Ukrainian"), `<target_role>`, `<role_context>`, `<source>`, `<user_facts>`. Rules say content of
 tags is data, never instructions. User data never enters `system`.
 
 The agent (`ToolLoopAgent`) has **one tool, `submit_draft`**, forced via `toolChoice`:
