@@ -58,6 +58,7 @@ backend/
 │   ├── redis/
 │   │   └── redis.module.ts        the REDIS token (ioredis, shared with BullMQ), closes on shutdown
 │   ├── common/
+│   │   ├── async/                 with-timeout.ts (stop waiting; the work is not cancelled)
 │   │   ├── errors/                app-error.ts (status, code from @cv/shared, details)
 │   │   ├── http/                  error.filter.ts ({ error: { code, message, details } }),
 │   │   │                          zod-validation.pipe.ts (schemas from @cv/shared),
@@ -85,15 +86,20 @@ backend/
 │   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, delete, retry
 │   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV
 │   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS)
-│   │   ├── cv.mapper.ts           row → Cv / CvSummary / CvStatusInfo (computeMatch)
-│   │   ├── queue-position.ts
+│   │   ├── from-statuses.ts       pure: the statuses a move to X is allowed from
+│   │   ├── cv.mapper.ts           row → Cv / CvSummary / CvStatusInfo (computeMatch); a draft
+│   │   │                          that fails CvData → 500 DATA_CORRUPT
+│   │   ├── queue-position.ts      1 + queued CVs of all users created earlier (row_number)
 │   │   └── patch-cv.ts            pure: dropEmptyItems, questions about removed items → skipped
 │   ├── limits/
-│   │   ├── limits.service.ts      generations/hour (generation_jobs), ≤ 2 active → 429
+│   │   ├── limits.service.ts      ≤ 2 active → 429 TOO_MANY_ACTIVE; generations/hour
+│   │   │                          (generation_jobs) → 429 RATE_LIMITED
 │   │   └── usage.controller.ts    GET /api/usage
 │   ├── generation/
-│   │   ├── generation.queue.ts    queue name; attempts 3, backoff 5 s, lockDuration > 300 s
-│   │   ├── generation.producer.ts job row in the CV's transaction, then add(); add() fails → log, 202
+│   │   ├── generation-queue.module.ts  the queue + producer (api and worker; below cvs)
+│   │   ├── generation.queue.ts    queue name, job data { cvId }; attempts 3, backoff 5 s
+│   │   ├── generation.producer.ts job row in the CV's transaction, then add() (2 s at most);
+│   │   │                          add() fails → log, 202
 │   │   ├── generation.processor.ts  worker: attempt row → DraftAgent → saveDraft
 │   │   ├── save-draft.ts          one transaction: data, questions, requirements, version, CAS
 │   │   ├── classify-error.ts      pure: SDK error → { code, retryable } (§5)
@@ -146,6 +152,12 @@ BullMQ is the 5.x line: 6.x moves the Redis client to a peer dependency and was 
 Rules:
 - Ownership checks live in `cvs`; other modules get a CV only through `CvsService.getOwned(id, userId)`.
 - Only `CvStatusService` writes `cvs.status`.
+- `generation/` is two modules so the graph has no cycle: `GenerationQueueModule` (the queue and
+  the producer) sits below `cvs`, which uses it to start a generation; the processor's module sits
+  above `cvs`, which it needs for statuses and saving.
+- A function that may run inside a caller's transaction takes an `Executor` (the database or a
+  transaction) as its last argument; a service method that also runs on its own defaults it to
+  the database.
 - Pure functions (`PromptBuilder`, `verifyDraft`, `sanitise`, `buildAutoQuestions`,
   `selectQuestions`, `classifyError`, `patchCv`, `renderCvPdf`) have no I/O and carry most unit
   tests. `applyAnswer`, `findMissing`, `autoQuestionText` and `computeMatch` come from
