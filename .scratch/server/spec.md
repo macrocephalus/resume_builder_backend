@@ -104,7 +104,7 @@ against `pnpm stack`, a bit further than before.
 34. As a user, I want the request to return at once with my CV `queued`, so that the UI never waits on the AI.
 35. As a user, I want the CV language to default to English, so that I don't have to pick one.
 36. As a user, I want my CV's title to default to the target role, so that the list is readable without extra input.
-37. As a user, I want `TOO_MANY_ACTIVE` when I already have 2 CVs generating, so that one account can't flood the queue.
+37. As a user, I want `TOO_MANY_ACTIVE` when I already have 4 CVs generating, so that one account can't flood the queue.
 38. As a user, I want `RATE_LIMITED` with `Retry-After` after 10 started generations in the last 60 minutes, so that I know exactly when I can start another.
 39. As a user, I want only what I started (a CV created or a Retry pressed) to count toward the hourly limit, not the automatic retries, so that the server's own retries don't use up my allowance.
 40. As the product owner, I want deleting a CV not to give back its generation from the hourly limit, so that create-and-delete can't get around the limit.
@@ -200,7 +200,7 @@ against `pnpm stack`, a bit further than before.
 
 ### Processes, packaging, tooling
 
-- One image, two processes. The **api** is NestJS HTTP. On start it applies the committed Drizzle migrations and loads the JWT secret, then listens on 3000. The **worker** is a Nest application context without HTTP. It runs the BullMQ processor (concurrency 4, from the env) and the queue recovery.
+- One image, two processes. The **api** is NestJS HTTP. On start it applies the committed Drizzle migrations and loads the JWT secret, then listens on 3000. The **worker** is a Nest application context without HTTP. It runs the BullMQ processor (concurrency 8, from the env) and the queue recovery.
 - NestJS 11, CommonJS, built by `nest build` with SWC; `tsc --noEmit` for typecheck; oxlint; prettier. The stray `"type": "module"` package stub is replaced by the scaffold.
 - The package ships `dist`, the migrations folder and the bundled fonts. Otherwise the deployed image lacks migrations and fonts.
 - The environment is parsed by a Zod schema at start: database URL, Redis URL, Anthropic key, model (default `claude-sonnet-5-5`), worker concurrency, optional JWT secret override.

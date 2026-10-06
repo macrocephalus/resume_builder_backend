@@ -21,7 +21,7 @@ export const envSchema = z.object({
   QUEUE_PREFIX: z.string().min(1).default('cv'),
   ANTHROPIC_API_KEY: z.string().min(1),
   ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-5-5'),
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
   /** Overrides the secret kept in `app_secrets`; generated on first start when absent. */
   JWT_SECRET: z.string().min(32).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),

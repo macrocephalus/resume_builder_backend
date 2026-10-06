@@ -16,7 +16,7 @@ export const TIMEOUTS = {
 
 export const GENERATION = {
   /** CVs of one user in queued / generating / retrying at once; another one is 429. */
-  activePerUser: 2,
+  activePerUser: 4,
   /** Attempts of one generation job (BullMQ `attempts`, `cvs.max_attempts`). */
   attempts: 3,
   /** First delay between attempts; BullMQ doubles it each time. */

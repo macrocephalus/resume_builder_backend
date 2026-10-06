@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { GENERATION } from '../src/config/limits'
 import { DATABASE, type Database } from '../src/database/database.module'
 import { cvQuestions, cvs, generationJobs } from '../src/database/schema'
 import { GENERATION_QUEUE } from '../src/generation/generation.queue'
@@ -159,16 +160,16 @@ describe('CVs before generation', () => {
       expect(fieldsOf(response)).toEqual(['fromCvId'])
     })
 
-    it('refuses a third CV in progress with 429 TOO_MANY_ACTIVE and writes nothing', async () => {
+    it('refuses one CV in progress over the limit with 429 TOO_MANY_ACTIVE and writes nothing', async () => {
       const { cookie } = await signUp(app.server())
-      await createCv(app.server(), cookie)
-      await createCv(app.server(), cookie)
+      const limit = GENERATION.activePerUser
+      for (let i = 0; i < limit; i++) await createCv(app.server(), cookie)
 
       const response = await as(cookie).post('/api/cvs').send(newCvBody())
       expectError(response, 429, 'TOO_MANY_ACTIVE')
-      expect(errorResponseSchema.parse(response.body).error.details).toEqual({ limit: 2 })
-      expect(await db.select().from(cvs)).toHaveLength(2)
-      expect(await db.select().from(generationJobs)).toHaveLength(2)
+      expect(errorResponseSchema.parse(response.body).error.details).toEqual({ limit })
+      expect(await db.select().from(cvs)).toHaveLength(limit)
+      expect(await db.select().from(generationJobs)).toHaveLength(limit)
     })
 
     it('answers 202 within the enqueue timeout when Redis is down; the job row stays for recovery', async () => {

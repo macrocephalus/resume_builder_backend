@@ -24,7 +24,7 @@ plan.
 
 Two processes from one image. **api** (`node dist/main.js`): NestJS HTTP; on start it applies the
 migrations and loads the JWT secret, then listens on 3000. **worker** (`node dist/worker.js`):
-`NestFactory.createApplicationContext`, no HTTP; runs the BullMQ processor (concurrency 4) and the
+`NestFactory.createApplicationContext`, no HTTP; runs the BullMQ processor (concurrency 8) and the
 queue recovery. Postgres is the only source of truth; Redis holds only the queue.
 
 ```
@@ -92,7 +92,7 @@ backend/
 │   │   ├── queue-position.ts      1 + queued CVs of all users created earlier (row_number)
 │   │   └── patch-cv.ts            pure: dropEmptyItems, questions about removed items → skipped
 │   ├── limits/
-│   │   ├── limits.service.ts      ≤ 2 active → 429 TOO_MANY_ACTIVE; generations/hour
+│   │   ├── limits.service.ts      ≤ 4 active → 429 TOO_MANY_ACTIVE; generations/hour
 │   │   │                          (generation_jobs) → 429 RATE_LIMITED
 │   │   └── usage.controller.ts    GET /api/usage
 │   ├── generation/
@@ -300,8 +300,8 @@ Settings: model `claude-sonnet-5-5` (`ANTHROPIC_MODEL`); `timeout: { stepMs: 120
 300_000 }` (the BullMQ lock is 30 s, renewed while the attempt runs); `maxRetries: 2` inside a step (a short 529 on step 2
 keeps step 1); `maxOutputTokens: 16_000` per step (thinking can't be turned off on this model;
 `temperature` is ignored); strict tools off — the schema's limits are checked locally by Zod and
-its errors go back to the model; request-level automatic prompt caching on. Worker concurrency 4
-(env).
+its errors go back to the model; request-level automatic prompt caching on. Worker concurrency 8
+(env), twice the CVs one user may have in progress, so one user never takes every slot.
 
 `stage` is written (`CvStatusService.setStage`, only while `generating`) from the SDK hooks: `onStepStart` on step 0 → `drafting`,
 `onToolExecutionStart` → `verifying`, `onStepEnd` with `accepted: false` → `revising`, after the
@@ -419,7 +419,7 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
   the web container.
 - Every CV query filters by `user_id`; foreign CV ⇒ `404`, not `403`. The worker takes `user_id`
   from the job row.
-- Limits (config): 10 generations/user/hour, ≤ 2 in progress per user, ingest 20/min → `429` +
+- Limits (config): 10 generations/user/hour, ≤ 4 in progress per user, ingest 20/min → `429` +
   `Retry-After`. The generation limit counts `generation_jobs` rows of the last 60 minutes — what
   the user started (a CV created, a manual Retry), not automatic retries of an attempt; deleting a
   CV keeps its jobs, so it doesn't free the limit. `@nestjs/throttler` for login (per IP) and

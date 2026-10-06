@@ -3,6 +3,7 @@ import { Queue, UnrecoverableError, Worker } from 'bullmq'
 import IORedis, { type Redis } from 'ioredis'
 import request from 'supertest'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { GENERATION } from '../src/config/limits'
 import { CvStatusService } from '../src/cvs/cv-status.service'
 import { DATABASE, type Database } from '../src/database/database.module'
 import { cvs, generationAttempts, generationJobs } from '../src/database/schema'
@@ -223,11 +224,12 @@ describe('generation failures, retries and recovery (scripted model)', () => {
       expect(foreign.status).toBe(404)
       expect(errorResponseSchema.parse(foreign.body).error.code).toBe('NOT_FOUND')
 
-      await createCv(app.server(), owner.cookie)
+      // `queued` is in progress already; the others fill the user's limit
+      for (let i = 1; i < GENERATION.activePerUser; i++) await createCv(app.server(), owner.cookie)
       const busy = await retry(failed.id, owner.cookie)
       expect(busy.status).toBe(429)
       expect(errorResponseSchema.parse(busy.body).error.code).toBe('TOO_MANY_ACTIVE')
-      expect(await db.select().from(generationJobs)).toHaveLength(3)
+      expect(await db.select().from(generationJobs)).toHaveLength(1 + GENERATION.activePerUser)
     })
   })
 

@@ -21,7 +21,7 @@ describe('parseEnv', () => {
       QUEUE_PREFIX: 'cv',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       ANTHROPIC_MODEL: 'claude-sonnet-5-5',
-      WORKER_CONCURRENCY: 4,
+      WORKER_CONCURRENCY: 8,
       PORT: 3000,
       LOG_LEVEL: 'info',
       JWT_SECRET: undefined,
