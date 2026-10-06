@@ -18,7 +18,9 @@ export type QuestionSources = {
  * The questions a draft is saved with (backend architecture §3): auto, `confirm` (at most 5),
  * the cleared fields, the `multi`, then the model's (at most 7, in its order), and at most 12 in
  * all, so the last ones are the first to go. A model question about the same target as an auto or
- * cleared-field question takes that one's place; a claim to confirm is never replaced.
+ * cleared-field question takes that one's place; a claim to confirm is never replaced. A model
+ * question about the `multi`'s target (the whole skills block) is dropped: the `multi` asks it
+ * with options, so the user isn't asked about skills twice.
  */
 export const selectQuestions = ({
   auto,
@@ -27,9 +29,11 @@ export const selectQuestions = ({
   multi,
   model,
 }: QuestionSources): NewQuestion[] => {
+  const multiKey = multi === null ? null : targetKey(multi.target)
   // one model question per target, the first the model wrote
   const modelByTarget = new Map<string, NewQuestion>()
-  for (const question of model.slice(0, QUESTIONS.model)) {
+  const kept = model.filter((question) => targetKey(question.target) !== multiKey)
+  for (const question of kept.slice(0, QUESTIONS.model)) {
     const key = targetKey(question.target)
     if (!modelByTarget.has(key)) modelByTarget.set(key, question)
   }

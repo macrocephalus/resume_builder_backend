@@ -341,7 +341,8 @@ language level — per cleared item field the auto questions don't cover, one `m
 skills ∪ uncovered `skill` requirements, ≤ 8 options) and **auto** (`buildAutoQuestions` over the
 final draft). A question whose target can't take an answer (`applyAnswer`) is dropped; a model
 question about a field that also has an auto or a cleared-field question replaces it; a `confirm`
-is never replaced. `selectQuestions` keeps at most 12 open questions, in this order: auto →
+is never replaced; a model question about the whole skills block is dropped when there is a
+`multi`, which already asks it with options. `selectQuestions` keeps at most 12 open questions, in this order: auto →
 `confirm` (≤ 5) → cleared fields → the `multi` → model (≤ 7, in the model's order); the caps are
 `QUESTIONS` in `config/limits.ts`. The verifier's questions are worded in the CV language by
 `questions/verifier-wording.ts` (the auto ones by `@cv/shared`).

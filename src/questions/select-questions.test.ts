@@ -72,6 +72,16 @@ describe('selectQuestions', () => {
     expect(select({ auto, model })).toEqual(['Your work email?', 'auto contacts', 'model projects'])
   })
 
+  it('drops a model question about the skills block when the multi asks about it', () => {
+    const multi = question('verifier', { section: 'skills' }, 'multi', 'multi')
+    const model = [
+      question('model', { section: 'skills' }, 'Worked with message queues?'),
+      ...many(7, modelAbout),
+    ]
+    expect(select({ multi, model })).toEqual(['multi', ...many(7, modelAbout).map((q) => q.text)])
+    expect(select({ model: model.slice(0, 1) })).toEqual(['Worked with message queues?'])
+  })
+
   it('lets a model question replace a cleared-field question, never a claim', () => {
     const level = { section: 'languages', itemId: JOB, field: 'level' } as const
     const bullets = { section: 'experience', itemId: JOB, field: 'bullets' } as const
