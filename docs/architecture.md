@@ -466,7 +466,8 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
 pino (`nestjs-pino`, options in `common/logging/logger-options.ts`) to stdout as JSON, or through
 pino-pretty with `LOG_PRETTY` (a dev dependency, so not in the docker image). Level from
 `LOG_LEVEL` (`silent|error|warn|info|debug|trace`, default `info`; the tests run `silent`).
-`pnpm dev` and `pnpm dev:worker` run `debug` with content and pretty lines.
+`pnpm dev` and `pnpm dev:worker` run `debug` with content and pretty lines unless the shell sets
+the variables; how to switch them for each way of running: `README.md`, "Logging".
 
 - Every line carries what is known of requestId (`x-request-id`, kept from the request or
   generated, and returned in the response), userId, cvId, jobId, attempt. A line logged during a

@@ -22,8 +22,8 @@ All from `backend/`, Node through nvm (root `CLAUDE.md`, "Environment"):
   `ANTHROPIC_API_KEY` is required, `DATABASE_URL` / `REDIS_URL` default to the project's host
   ports (root `.env.example` lists the optional overrides). `pnpm dev` also serves the Swagger
   UI at `localhost:3000/api/docs` (`API_DOCS=true`); it is off everywhere else unless turned on.
-  Both log at `debug`, with content, in pino-pretty lines (`LOG_LEVEL=debug LOG_CONTENT=true
-  LOG_PRETTY=true`, architecture §6a).
+  Both log at `debug`, with content, in pino-pretty lines unless the shell sets `LOG_LEVEL`,
+  `LOG_CONTENT` or `LOG_PRETTY` (architecture §6a; how to switch them: `README.md`, "Logging").
 - Checks before a commit: `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build`.
 - `pnpm test:e2e` — against the same compose Postgres and Redis; set `DATABASE_URL` / `REDIS_URL`
   only if you changed the ports. Uses the `cv_test` database only.
