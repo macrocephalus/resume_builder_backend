@@ -25,6 +25,58 @@ All from `backend/`, Node through nvm (root `CLAUDE.md`, "Environment"):
   here; `DATABASE_URL=… pnpm test:e2e` when the ports differ). Uses the `cv_test` database only.
 - `pnpm db:generate` after a schema change; commit the SQL in `drizzle/`.
 
+## Code rules
+
+Write the code a senior NestJS reviewer would approve without comments: idiomatic Nest, typed end
+to end, small modules with one job. When a rule here and a habit disagree, the rule wins; when
+neither covers a case, follow the established NestJS / Node practice and say why in the PR.
+
+**Types.** `strict` is on and stays on.
+- No `any`: not written, not cast to (`as any`), not inferred. Data from outside (body, query, env,
+  JSON columns, the model's output, a caught error) is `unknown` until a Zod schema or a type guard
+  narrows it. Prefer `satisfies` and inference over `as`; a cast needs a one-line reason.
+- No `@ts-ignore` / `@ts-nocheck`; `@ts-expect-error` only with a comment saying why.
+- Request, response and domain types come from `@cv/shared` (`z.infer` of its schemas); the
+  backend never redeclares a contract type. Row types come from the Drizzle schema
+  (`typeof table.$inferSelect`).
+
+**Modules and dependencies.**
+- The module graph is acyclic and points one way: feature modules (`auth`, `cvs`, `questions`,
+  `generation`, …) → `limits`, `agents`, `pdf` → `common`, `database`, `redis`, `config`. Lower
+  modules never import higher ones; `agents/` imports only `@cv/shared` and the AI SDK.
+- No circular imports between files and no `forwardRef` (both fail `pnpm lint`). If two modules
+  need each other, move what they share into a lower module or invert the call (the caller passes
+  a callback / the lower module returns data); never break a cycle with `forwardRef` or a lazy
+  `require`.
+- A module exports only what another module uses; everything else stays private to it. Other
+  modules reach a CV only through `CvsService.getOwned`, and only `CvStatusService` writes
+  `cvs.status` (architecture §1, "Rules").
+
+**Nest conventions.**
+- Dependencies come through constructor injection. Non-class values (the DB, Redis, the env, the
+  model factory) get a `Symbol` token exported next to their module; no `new` of a service, no
+  module-level singletons, no service locator (`moduleRef.get`) outside the entry points.
+- Controllers are thin: parse input with `ZodValidationPipe` and a `@cv/shared` schema, take the
+  user from the verified token, call one service method, map the result. No queries, no business
+  rules and no `try/catch` for flow control in a controller.
+- Logic that needs no I/O is a pure function in its own file with unit tests next to it; services
+  orchestrate I/O around those functions. Writes that must agree happen in one transaction.
+- Errors: throw `AppError(status, code, message, details)` with a code from `@cv/shared`; never
+  answer with a hand-built body or a raw `HttpException`. Unexpected errors are left to the filter
+  (logged, `500 INTERNAL`). Never swallow an error silently: handle it, or log it and rethrow.
+- Configuration is read once by `parseEnv` and injected through the `ENV` token; nothing else reads
+  `process.env`. Limits and timeouts live in `config/limits.ts`, not as literals in services.
+- Logging goes through `PinoLogger` with structured fields (`{ cvId, jobId, err }`), never
+  `console` (except in `run.ts` before the logger exists) and never source text, answers,
+  passwords or the cookie.
+- Every promise is awaited or explicitly handed off; long work belongs to the worker, not to a
+  request. Resources a module opens (pools, connections, queues) are closed in its
+  `onApplicationShutdown`.
+
+**Tests.** Behaviour through the highest seam (HTTP for features, the function for pure logic);
+no mocks of our own classes; the model is replaced only through the model factory's token
+(architecture §8).
+
 ## Docker
 
 `Dockerfile` (build context: the repo root) builds one image for both processes:

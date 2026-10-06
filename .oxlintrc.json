@@ -5,7 +5,21 @@
     "correctness": "error"
   },
   "rules": {
-    "import/no-cycle": "error"
+    "import/no-cycle": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/ban-ts-comment": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@nestjs/common",
+            "importNames": ["forwardRef"],
+            "message": "Modules depend on each other one way only; move what both need into a lower module (backend/CLAUDE.md, \"Code rules\")."
+          }
+        ]
+      }
+    ]
   },
   "ignorePatterns": ["dist", "drizzle", "coverage"]
 }
