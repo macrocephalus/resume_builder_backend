@@ -46,8 +46,8 @@ export class CvsService {
    * The only way to a CV: the row when `userId` owns it, else `404` (also for an id that is not
    * a UUID, which can't exist).
    */
-  async getOwned(id: string, userId: string): Promise<CvRow> {
-    const [row] = await this.ownedRow(id, userId, this.db)
+  async getOwned(id: string, userId: string, executor: Executor = this.db): Promise<CvRow> {
+    const [row] = await this.ownedRow(id, userId, executor)
     if (!row) throw notFound()
     return row
   }
@@ -149,10 +149,11 @@ export class CvsService {
     return this.get(userId, row.id)
   }
 
-  async get(userId: string, id: string): Promise<Cv> {
-    const row = await this.getOwned(id, userId)
-    const questions = await this.db.select().from(cvQuestions).where(eq(cvQuestions.cvId, row.id))
-    return toCv(row, questions, await this.queuePositionOf(row))
+  /** The whole CV; inside a transaction that changed it, as that transaction left it. */
+  async get(userId: string, id: string, executor: Executor = this.db): Promise<Cv> {
+    const row = await this.getOwned(id, userId, executor)
+    const questions = await executor.select().from(cvQuestions).where(eq(cvQuestions.cvId, row.id))
+    return toCv(row, questions, await this.queuePositionOf(row, executor))
   }
 
   /**
@@ -186,8 +187,8 @@ export class CvsService {
       .where(and(eq(cvs.id, id), eq(cvs.userId, userId)))
   }
 
-  private async queuePositionOf(row: CvRow): Promise<number | null> {
+  private async queuePositionOf(row: CvRow, executor: Executor = this.db): Promise<number | null> {
     if (row.status !== 'queued') return null
-    return (await queuePositions([row.id], this.db)).get(row.id) ?? null
+    return (await queuePositions([row.id], executor)).get(row.id) ?? null
   }
 }

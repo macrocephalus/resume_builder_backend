@@ -41,10 +41,10 @@ export class QuestionsService {
   /**
    * Writes the answer into the draft as written (the shared `applyAnswer`) and keeps it as a fact
    * for later generations. One transaction: the draft, the fact, `version + 1`, the question
-   * `answered`, and `ready` once no question is left open.
+   * `answered`, and `ready` once no question is left open. Answers the CV as this answer left it.
    */
   async answer(userId: string, cvId: string, questionId: string, body: Answer): Promise<Cv> {
-    await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const { cv, question } = await this.openQuestion(userId, cvId, questionId, tx)
       if (body.kind !== question.kind) {
         throw invalidState(`This question takes a "${question.kind}" answer.`)
@@ -72,21 +72,21 @@ export class QuestionsService {
         .set({ status: 'answered', answer, answeredAt: sql`now()` })
         .where(eq(cvQuestions.id, question.id))
       await this.statuses.readyIfNoneOpen(cv.id, tx)
+      return this.cvs.get(userId, cv.id, tx)
     })
-    return this.cvs.get(userId, cvId)
   }
 
   /** Closes a `text` / `choice` / `multi` question; the draft and its version stay as they are. */
   async skip(userId: string, cvId: string, questionId: string): Promise<Cv> {
-    await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const { cv, question } = await this.openQuestion(userId, cvId, questionId, tx)
       if (!SKIPPABLE_KINDS.some((kind) => kind === question.kind)) {
         throw invalidState('A confirm question must be answered yes or no.')
       }
       await tx.update(cvQuestions).set({ status: 'skipped' }).where(eq(cvQuestions.id, question.id))
       await this.statuses.readyIfNoneOpen(cv.id, tx)
+      return this.cvs.get(userId, cv.id, tx)
     })
-    return this.cvs.get(userId, cvId)
   }
 
   /**
