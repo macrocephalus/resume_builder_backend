@@ -355,6 +355,7 @@ describe('CVs before generation', () => {
       const { cv: owned } = cvResponseSchema.parse(own.body)
       expect(owned.title).toBe(cv.title)
       expect(owned.questions.map((q) => q.status)).toEqual(['open'])
+      expect(owned.version).toBe(cv.version)
     })
   })
 })

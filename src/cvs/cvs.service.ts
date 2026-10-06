@@ -5,6 +5,8 @@ import {
   type CvStatus,
   type CvStatusInfo,
   type CvSummary,
+  type PatchCvBody,
+  hasDraft,
   isInProgress,
 } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
@@ -18,6 +20,7 @@ import { GenerationProducer } from '../generation/generation.producer'
 import { LimitsService } from '../limits/limits.service'
 import { CvStatusService } from './cv-status.service'
 import { type CvRow, toCv, toStatusInfo, toSummary } from './cv.mapper'
+import { patchCv } from './patch-cv'
 import { queuePositions } from './queue-position'
 
 const uuid = z.uuid()
@@ -29,6 +32,13 @@ const NEWEST_FIRST = [desc(cvs.updatedAt), desc(cvs.id)]
 
 /** Another user's CV is answered exactly like a missing one (docs/api.md "Conventions"). */
 const notFound = () => new AppError(404, 'NOT_FOUND', 'This CV does not exist.')
+
+const notEditable = () =>
+  new AppError(409, 'INVALID_STATE', 'Only a CV with a finished draft can be edited.')
+
+/** The editor opened an older version (another tab saved since): "reload latest". */
+const versionConflict = (currentVersion: number) =>
+  new AppError(409, 'VERSION_CONFLICT', 'The CV was changed elsewhere.', { currentVersion })
 
 const notRetryable = () =>
   new AppError(409, 'INVALID_STATE', 'Only a CV whose generation failed can be retried.')
@@ -149,6 +159,43 @@ export class CvsService {
     return this.get(userId, row.id)
   }
 
+  /**
+   * A manual edit (docs/api.md, `PATCH /api/cvs/:id`): the title, the whole draft or both, from
+   * the version the editor was opened at. One transaction: the edit, `version + 1`, the open
+   * questions about removed items skipped, and `ready` once none is left open. Answers the CV as
+   * this edit left it, read before the lock is released.
+   */
+  async edit(userId: string, id: string, body: PatchCvBody): Promise<Cv> {
+    return this.db.transaction(async (tx) => {
+      const row = await this.lockOwned(id, userId, tx)
+      if (!hasDraft(row.status)) throw notEditable()
+      if (body.version !== row.version) {
+        throw versionConflict(row.version)
+      }
+      const patched =
+        body.data === undefined
+          ? undefined
+          : patchCv(body.data, await this.openQuestionsOf(row.id, tx))
+      await tx
+        .update(cvs)
+        .set({
+          ...(body.title === undefined ? {} : { title: body.title }),
+          ...(patched === undefined ? {} : { data: patched.data }),
+          version: sql`${cvs.version} + 1`,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(cvs.id, row.id))
+      if (patched !== undefined && patched.toSkip.length > 0) {
+        await tx
+          .update(cvQuestions)
+          .set({ status: 'skipped' })
+          .where(inArray(cvQuestions.id, patched.toSkip))
+        await this.statusService.readyIfNoneOpen(row.id, tx)
+      }
+      return this.get(userId, row.id, tx)
+    })
+  }
+
   /** The whole CV; inside a transaction that changed it, as that transaction left it. */
   async get(userId: string, id: string, executor: Executor = this.db): Promise<Cv> {
     const row = await this.getOwned(id, userId, executor)
@@ -176,6 +223,13 @@ export class CvsService {
       .innerJoin(generationJobs, eq(generationJobs.cvId, cvs.id))
       .where(inArray(cvs.status, IN_PROGRESS))
       .orderBy(cvs.id, desc(generationJobs.createdAt))
+  }
+
+  private openQuestionsOf(cvId: string, executor: Executor) {
+    return executor
+      .select({ id: cvQuestions.id, target: cvQuestions.target })
+      .from(cvQuestions)
+      .where(and(eq(cvQuestions.cvId, cvId), eq(cvQuestions.status, 'open')))
   }
 
   /** The query for the CV `userId` owns with this id; `404` for an id that is not a UUID. */

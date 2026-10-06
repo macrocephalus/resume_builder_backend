@@ -5,8 +5,10 @@ import {
   type cvResponseSchema,
   cvStatusesQuerySchema,
   type cvStatusesResponseSchema,
+  type PatchCvBody,
+  patchCvBodySchema,
 } from '@cv/shared'
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common'
 import type { z } from 'zod'
 import { CurrentUser } from '../common/auth/current-user.decorator'
 import { ZodValidationPipe } from '../common/http/zod-validation.pipe'
@@ -49,6 +51,15 @@ export class CvsController {
   @Get(':id')
   async get(@CurrentUser() userId: string, @Param('id') id: string): Promise<CvResponse> {
     return { cv: await this.cvs.get(userId, id) }
+  }
+
+  @Patch(':id')
+  async edit(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(patchCvBodySchema)) body: PatchCvBody,
+  ): Promise<CvResponse> {
+    return { cv: await this.cvs.edit(userId, id, body) }
   }
 
   /** `202`: the failed CV is queued again. */
