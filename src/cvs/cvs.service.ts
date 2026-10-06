@@ -18,12 +18,18 @@ import { DATABASE, type Database, type Executor } from '../database/database.mod
 import { cvQuestions, cvs, generationJobs } from '../database/schema'
 import { GenerationProducer } from '../generation/generation.producer'
 import { LimitsService } from '../limits/limits.service'
+import type { CvFonts } from '../pdf/fonts'
+import { PDF_FONTS } from '../pdf/pdf.module'
+import { renderCvPdf } from '../pdf/render-cv-pdf'
 import { CvStatusService } from './cv-status.service'
-import { type CvRow, toCv, toStatusInfo, toSummary } from './cv.mapper'
+import { type CvRow, requireDraft, toCv, toStatusInfo, toSummary } from './cv.mapper'
 import { patchCv } from './patch-cv'
 import { queuePositions } from './queue-position'
 
 const uuid = z.uuid()
+
+/** A CV's PDF and the title its file is named after. */
+export type CvPdf = { pdf: Buffer; title: string }
 
 const IN_PROGRESS = CV_STATUSES.filter(isInProgress)
 
@@ -40,6 +46,8 @@ const notEditable = () =>
 const versionConflict = (currentVersion: number) =>
   new AppError(409, 'VERSION_CONFLICT', 'The CV was changed elsewhere.', { currentVersion })
 
+const noDraftYet = () => new AppError(409, 'INVALID_STATE', 'This CV has no draft to download yet.')
+
 const notRetryable = () =>
   new AppError(409, 'INVALID_STATE', 'Only a CV whose generation failed can be retried.')
 
@@ -50,6 +58,7 @@ export class CvsService {
     private readonly limits: LimitsService,
     private readonly producer: GenerationProducer,
     private readonly statusService: CvStatusService,
+    @Inject(PDF_FONTS) private readonly fonts: CvFonts,
   ) {}
 
   /**
@@ -201,6 +210,16 @@ export class CvsService {
     const row = await this.getOwned(id, userId, executor)
     const questions = await executor.select().from(cvQuestions).where(eq(cvQuestions.cvId, row.id))
     return toCv(row, questions, await this.queuePositionOf(row, executor))
+  }
+
+  /**
+   * The saved draft as an A4 PDF, drawn on each request (the client saves first). A stored draft
+   * that is no `CvData` is `500 DATA_CORRUPT` before anything is drawn.
+   */
+  async pdf(userId: string, id: string): Promise<CvPdf> {
+    const row = await this.getOwned(id, userId)
+    if (!hasDraft(row.status)) throw noDraftYet()
+    return { pdf: await renderCvPdf(requireDraft(row), row.language, this.fonts), title: row.title }
   }
 
   /**

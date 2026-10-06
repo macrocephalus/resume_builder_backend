@@ -17,6 +17,7 @@ import { GENERATION_QUEUE } from '../src/generation/generation.queue'
 import { type TestApp, createTestApp } from './helpers/app'
 import { signUp } from './helpers/auth'
 import { createCv, newCvBody } from './helpers/cvs'
+import { draft } from './helpers/draft'
 import { SOURCE_TEXT } from './helpers/model'
 
 const expectError = (response: request.Response, status: number, code: string) => {
@@ -322,8 +323,12 @@ describe('CVs before generation', () => {
       const bob = await signUp(app.server(), 'bob@example.com')
       // a userId in the body is ignored: the CV is Ann's
       const cv = await createCv(app.server(), ann.cookie, { userId: bob.id })
-      // Ann's CV waits for an answer to a real question, so only the owner check can refuse Bob
-      await db.update(cvs).set({ status: 'needs_input' }).where(eq(cvs.id, cv.id))
+      // Ann's CV has a draft and waits for an answer to a real question, so only the owner
+      // check can refuse Bob
+      await db
+        .update(cvs)
+        .set({ status: 'needs_input', data: draft(), version: 1 })
+        .where(eq(cvs.id, cv.id))
       const [question] = await db
         .insert(cvQuestions)
         .values(questionRow(cv.id, 1))
@@ -334,7 +339,7 @@ describe('CVs before generation', () => {
       const routes = [
         () => bobs.get(`/api/cvs/${cv.id}`),
         () => bobs.delete(`/api/cvs/${cv.id}`),
-        () => bobs.patch(`/api/cvs/${cv.id}`).send({ version: 0, title: 'Mine now' }),
+        () => bobs.patch(`/api/cvs/${cv.id}`).send({ version: 1, title: 'Mine now' }),
         () => bobs.post(`/api/cvs/${cv.id}/retry`),
         () => bobs.get(`/api/cvs/${cv.id}/pdf`),
         () =>
@@ -355,7 +360,8 @@ describe('CVs before generation', () => {
       const { cv: owned } = cvResponseSchema.parse(own.body)
       expect(owned.title).toBe(cv.title)
       expect(owned.questions.map((q) => q.status)).toEqual(['open'])
-      expect(owned.version).toBe(cv.version)
+      expect(owned.version).toBe(1)
+      expect((await as(ann.cookie).get(`/api/cvs/${cv.id}/pdf`)).status).toBe(200)
     })
   })
 })

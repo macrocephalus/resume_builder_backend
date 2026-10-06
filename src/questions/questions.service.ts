@@ -15,7 +15,7 @@ import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
 import { validationError } from '../common/errors/validation-error'
 import { CvStatusService } from '../cvs/cv-status.service'
-import { type CvRow, draftOf, toQuestion } from '../cvs/cv.mapper'
+import { type CvRow, requireDraft, toQuestion } from '../cvs/cv.mapper'
 import { CvsService } from '../cvs/cvs.service'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
 import { cvQuestions, cvs } from '../database/schema'
@@ -52,8 +52,7 @@ export class QuestionsService {
       const parsed = answerSchemaFor(question).safeParse(body)
       if (!parsed.success) throw validationError(parsed.error)
       const answer = parsed.data
-      const data = draftOf(cv)
-      if (data === null) throw new Error(`CV ${cv.id} is needs_input without a draft`)
+      const data = requireDraft(cv)
       if (!targetExists(data, question)) {
         throw invalidState('The part of the CV this question is about has been removed.')
       }

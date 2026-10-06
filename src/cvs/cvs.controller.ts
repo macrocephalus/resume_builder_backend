@@ -8,10 +8,22 @@ import {
   type PatchCvBody,
   patchCvBodySchema,
 } from '@cv/shared'
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  StreamableFile,
+} from '@nestjs/common'
 import type { z } from 'zod'
 import { CurrentUser } from '../common/auth/current-user.decorator'
 import { ZodValidationPipe } from '../common/http/zod-validation.pipe'
+import { pdfDisposition } from '../pdf/content-disposition'
 import { CvsService } from './cvs.service'
 
 type CvResponse = z.infer<typeof cvResponseSchema>
@@ -60,6 +72,17 @@ export class CvsController {
     @Body(new ZodValidationPipe(patchCvBodySchema)) body: PatchCvBody,
   ): Promise<CvResponse> {
     return { cv: await this.cvs.edit(userId, id, body) }
+  }
+
+  /** `200 application/pdf`, an attachment named after the CV's title. */
+  @Get(':id/pdf')
+  async pdf(@CurrentUser() userId: string, @Param('id') id: string): Promise<StreamableFile> {
+    const { pdf, title } = await this.cvs.pdf(userId, id)
+    return new StreamableFile(pdf, {
+      type: 'application/pdf',
+      disposition: pdfDisposition(title),
+      length: pdf.length,
+    })
   }
 
   /** `202`: the failed CV is queued again. */

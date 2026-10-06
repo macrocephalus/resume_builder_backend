@@ -29,6 +29,13 @@ export const draftOf = (row: CvRow): CvData | null => {
   return parsed.data
 }
 
+/** The draft of a CV that has one (`needs_input` / `ready`); a row without it is a bug, `500`. */
+export const requireDraft = (row: CvRow): CvData => {
+  const data = draftOf(row)
+  if (data === null) throw new Error(`CV ${row.id} is ${row.status} without a draft`)
+  return data
+}
+
 export const toQuestion = (row: QuestionRow): Question => ({
   id: row.id,
   kind: row.kind,
