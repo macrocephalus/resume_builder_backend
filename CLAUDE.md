@@ -6,6 +6,11 @@ tables, the generation agent, verification, failure handling, auth and PDF rende
 Product, containers and stack: root `docs/architecture.md` §1–§4; API contract: `docs/api.md`;
 statuses: `docs/cv-statuses.md`.
 
+Server work starts here, not with a root spec (root `workflow.md` §1). Before grilling it, read
+`.scratch/server/handoff.md`: sources, what the root already settled (root
+`.scratch/backend/decisions.md`), what the frontend mocks (`frontend/src/mocks`) leave to the
+server, and the open questions.
+
 Dependencies are installed from the repo root (`pnpm install`): one workspace, one lockfile.
 
 ## Docker
