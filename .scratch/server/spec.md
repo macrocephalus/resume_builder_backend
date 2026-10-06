@@ -246,7 +246,7 @@ against `pnpm stack`, a bit further than before.
 
 ### Queue
 
-- BullMQ job options: `attempts: 3`, exponential backoff with a 5 s base, lock duration above the 300 s attempt timeout. A retryable failure moves the CV to `retrying` and rethrows. A non-retryable one moves it to `failed` with its error code and throws BullMQ's unrecoverable error, so no attempt is wasted.
+- BullMQ job options: `attempts: 3`, exponential backoff with a 5 s base, a 30 s lock that the worker renews while an attempt runs, so a dead worker's job is stalled and re-run within about a minute (first written as "lock duration above the 300 s attempt timeout", changed with ticket 07). A retryable failure moves the CV to `retrying` and rethrows. A non-retryable one moves it to `failed` with its error code and throws BullMQ's unrecoverable error, so no attempt is wasted.
 - Manual Retry (only from `failed`) creates a new generation job, resets `attempt` to 1 and counts toward the hourly limit.
 
 ### DraftAgent

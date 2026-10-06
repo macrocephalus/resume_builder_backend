@@ -97,10 +97,12 @@ backend/
 │   │   └── usage.controller.ts    GET /api/usage
 │   ├── generation/
 │   │   ├── generation-queue.module.ts  the queue + producer (api and worker; below cvs)
-│   │   ├── generation.queue.ts    queue name, job data { cvId }; attempts 3, backoff 5 s
+│   │   ├── generation.queue.ts    queue name, job data { cvId }; attempts 3, backoff 5 s;
+│   │   │                          the GENERATION_TIMING token (backoff, agent timeouts, recovery)
 │   │   ├── generation.producer.ts job row in the CV's transaction, then add() (2 s at most);
-│   │   │                          add() fails → log, 202
-│   │   ├── generation.module.ts   the worker's half: processor, model token, DraftSaver (above cvs)
+│   │   │                          add() fails → log, 202; requeue() for the recovery
+│   │   ├── generation.module.ts   the worker's half: processor, model token, DraftSaver, recovery
+│   │   │                          (above cvs)
 │   │   ├── generation.processor.ts  worker: job row → CV → CAS to generating → attempt row →
 │   │   │                          DraftAgent → draft + questions → DraftSaver
 │   │   ├── draft-from-submission.ts  pure: item UUIDs, question index → id, dropEmptyItems, CvData
@@ -180,9 +182,7 @@ Rules:
   tests. `applyAnswer`, `findMissing`, `autoQuestionText` and `computeMatch` come from
   `@cv/shared`, so the server never words an auto question or applies an answer its own way.
 - `agents/` imports only `@cv/shared`, the AI SDK and `zod` and returns plain results; its run
-  bounds (`DRAFT_AGENT_LIMITS`) sit next to the agent, and the BullMQ lock is derived from them in
-  `generation.queue.ts`; `generation/`
-  decides what to persist.
+  bounds (`DRAFT_AGENT_LIMITS`) sit next to the agent; `generation/` decides what to persist.
 - Every module imports `@cv/shared` for schemas and rules; `backend` never imports `frontend`.
 
 ## 2. Data model (Postgres, Drizzle)
@@ -297,7 +297,7 @@ QuestionTarget = { section: CvSection /* any of the eight blocks */;
    close the attempt row (model, prompt version, steps, tokens incl. cache read/write, ms).
 
 Settings: model `claude-sonnet-5-5` (`ANTHROPIC_MODEL`); `timeout: { stepMs: 120_000, totalMs:
-300_000 }` (BullMQ lock duration is longer); `maxRetries: 2` inside a step (a short 529 on step 2
+300_000 }` (the BullMQ lock is 30 s, renewed while the attempt runs); `maxRetries: 2` inside a step (a short 529 on step 2
 keeps step 1); `maxOutputTokens: 16_000` per step (thinking can't be turned off on this model;
 `temperature` is ignored); strict tools off — the schema's limits are checked locally by Zod and
 its errors go back to the model; request-level automatic prompt caching on. Worker concurrency 4
@@ -377,12 +377,20 @@ used — there is nothing to check them against.
 | 401/403 (bad key) / other 4xx | non-retryable → `failed` (`LLM_CONFIG` / `INTERNAL`) at once, no wasted attempts |
 
 `classifyError` (pure) maps an error to `{ code, retryable }`; a non-retryable one makes the
-processor throw BullMQ's `UnrecoverableError`.
+processor throw BullMQ's `UnrecoverableError`. A failed attempt closes its row as `failed` with the
+internal error and moves the CV in the same transaction: to `retrying` while attempts are left
+(the processor rethrows, BullMQ waits 5 s, then 10 s, and `attempt` goes up when the next one
+starts), else to `failed` with `error_code` and the user's text. What the processor throws carries
+only the code: BullMQ keeps it in Redis, and the original error may quote the source. A CV that
+is no longer `generating` (deleted) ends the job instead. If that write itself fails, a plain
+error makes BullMQ run the job again, and the next attempt takes the CV over.
 
 | failure | handling |
 |---|---|
-| worker crash mid-attempt | BullMQ stalled-job detection re-runs it; the new attempt finds its CV still `generating`, takes it over (`resumeGenerating`) and closes the job's attempt rows left `running` as `failed` (`stalled`); every other write is a CAS, so the re-run is idempotent |
-| Redis wiped / enqueue failed | on worker start and every 60 s: re-enqueue CVs in `queued`/`generating`/`retrying` that have no live BullMQ job (same jobId, so duplicates are ignored); `POST /api/cvs` still answers `202` and logs the failed `add()` |
+| worker crash mid-attempt, or SIGTERM (the worker closes without waiting out the attempt) | the 30 s job lock is no longer renewed, so BullMQ's stalled-job check re-runs the job within about a minute; the new attempt finds its CV still `generating`, takes it over (`resumeGenerating`) and closes the job's attempt rows left `running` as `failed` (`stalled`); every other write is a CAS, so the re-run is idempotent |
+| Redis wiped / enqueue failed | on worker start and every 60 s: re-enqueue CVs in `queued`/`generating`/`retrying` whose latest job BullMQ has no longer waiting, delayed or running (same jobId, so duplicates are ignored; a finished job BullMQ still stores is removed first); `POST /api/cvs` still answers `202` and logs the failed `add()` |
+| a job BullMQ gave up on while its CV is `generating` (stalled too often, or the last failure never written) | the recovery fails the CV with `INTERNAL` and closes the job's `running` attempt rows as `stalled`, instead of running it again (which could loop); the user can Retry |
+| a job replaced by a Retry runs again (stalled, recovered) | the processor runs only the CV's latest job; an older one ends without touching the CV |
 | CV deleted during generation | final CAS hits 0 rows → result discarded |
 | stale tab / two devices edit | `version` mismatch → `409 VERSION_CONFLICT` |
 | corrupt `data` in DB | parsed with Zod before render/return → `500 DATA_CORRUPT`, never a broken PDF |
@@ -457,7 +465,9 @@ Most important first; the cut order of features is in root architecture §12.
 8. Intake limits: non-PDF, scan, too big, too long text, 429.
 
 Vitest everywhere, `supertest` for API e2e, `unplugin-swc` for decorators. The fake model lives
-only in tests (swapped in through the model factory's DI token); there is no runtime switch.
+only in tests (swapped in through the model factory's DI token); there is no runtime switch. The
+e2e tests also replace the `GENERATION_TIMING` token: a 300 ms backoff, and per test a short
+attempt timeout or recovery period, so retries, timeouts and recovery run in about a second.
 e2e runs against Postgres and Redis from `compose.yaml` (`cv_test` database, own BullMQ prefix,
 tables truncated between tests); unit tests of pure functions need neither. `pnpm test:e2e` connects
 to the project's compose services on their host ports (`DATABASE_URL` / `REDIS_URL` override them)
