@@ -95,8 +95,10 @@ backend/
 │   │   ├── queue-position.ts      1 + queued CVs of all users created earlier (row_number)
 │   │   └── patch-cv.ts            pure: dropEmptyItems, questions about removed items → skipped
 │   ├── limits/
-│   │   ├── limits.service.ts      ≤ 4 active → 429 TOO_MANY_ACTIVE; generations/hour
-│   │   │                          (generation_jobs) → 429 RATE_LIMITED
+│   │   ├── limits.service.ts      generations/hour (generation_jobs) → 429 RATE_LIMITED, then
+│   │   │                          ≤ 4 active → 429 TOO_MANY_ACTIVE; usage
+│   │   ├── generation-limits.ts   the GENERATION_LIMITS token (per hour, active); tests bind less
+│   │   ├── hourly-window.ts       pure: used, resetsAt, Retry-After of the sliding hour
 │   │   └── usage.controller.ts    GET /api/usage
 │   ├── generation/
 │   │   ├── generation-queue.module.ts  the queue + producer (api and worker; below cvs)
@@ -434,7 +436,11 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
 - Limits (config): 10 generations/user/hour, ≤ 4 in progress per user, ingest 20/min → `429` +
   `Retry-After`. The generation limit counts `generation_jobs` rows of the last 60 minutes — what
   the user started (a CV created, a manual Retry), not automatic retries of an attempt; deleting a
-  CV keeps its jobs, so it doesn't free the limit. `@nestjs/throttler` for login (per IP) and
+  CV keeps its jobs, so it doesn't free the limit. The window is counted on the database's clock
+  (the one that stamped the rows); `resetsAt` is when the oldest counted row leaves it (with none,
+  an hour from now) and `Retry-After` the seconds until then. The hourly limit is checked before
+  the active one, in the transaction that starts the generation, on create and on Retry.
+  `@nestjs/throttler` for login (per IP) and
   ingest (per user: the id the auth guard verified, so one IP can hold many users).
 - Intake takes one multipart part, `file`, ≤ 5 MB; another field or file is `400`, a missing file
   is `400 VALIDATION_ERROR` with `details.fields.file`. The file stays in memory (multer without
@@ -486,7 +492,9 @@ Most important first; the cut order of features is in root architecture §12.
 Vitest everywhere, `supertest` for API e2e, `unplugin-swc` for decorators. The fake model lives
 only in tests (swapped in through the model factory's DI token); there is no runtime switch. The
 e2e tests also replace the `GENERATION_TIMING` token: a 300 ms backoff, and per test a short
-attempt timeout or recovery period, so retries, timeouts and recovery run in about a second.
+attempt timeout or recovery period, so retries, timeouts and recovery run in about a second; and
+the `GENERATION_LIMITS` token (5 per hour, 2 active), so a test reaches a limit in a few requests.
+The window moves by backdating `generation_jobs.created_at`.
 e2e runs against Postgres and Redis from `compose.yaml` (`cv_test` database, own BullMQ prefix,
 tables truncated between tests); unit tests of pure functions need neither. `pnpm test:e2e` connects
 to the project's compose services on their host ports (`DATABASE_URL` / `REDIS_URL` override them)

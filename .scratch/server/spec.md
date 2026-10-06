@@ -46,7 +46,7 @@ truth:
 5. **Questions, edits, PDF.** Answers go into the CV as written, through the shared `applyAnswer`.
    Manual edits use optimistic versioning. The PDF is rendered on the fly from the saved draft as
    A4 with selectable text.
-6. **Limits.** At most 2 generations in progress per user, 10 started generations per hour, PDF
+6. **Limits.** At most 4 generations in progress per user, 10 started generations per hour, PDF
    intake 20 a minute, login 30 a minute.
 
 The work is delivered as vertical slices. After each slice the real frontend works without mocks
