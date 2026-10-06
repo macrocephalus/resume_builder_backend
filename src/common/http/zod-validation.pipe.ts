@@ -1,16 +1,6 @@
 import type { PipeTransform } from '@nestjs/common'
-import type { ZodError, ZodType } from 'zod'
-import { AppError } from '../errors/app-error'
-
-/** `details.fields`: the first message per field, keyed by its dotted path; `body` for the whole body. */
-export const fieldErrors = (error: ZodError): Record<string, string> => {
-  const fields: Record<string, string> = {}
-  for (const issue of error.issues) {
-    const field = issue.path.map(String).join('.') || 'body'
-    fields[field] ??= issue.message
-  }
-  return fields
-}
+import type { ZodType } from 'zod'
+import { validationError } from '../errors/validation-error'
 
 /**
  * Parses a body, query or param with a schema from `@cv/shared` and hands the controller the
@@ -24,8 +14,6 @@ export class ZodValidationPipe<T> implements PipeTransform<unknown, T> {
   transform(value: unknown): T {
     const result = this.schema.safeParse(value)
     if (result.success) return result.data
-    throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
-      fields: fieldErrors(result.error),
-    })
+    throw validationError(result.error)
   }
 }
