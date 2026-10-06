@@ -14,7 +14,7 @@ run(async () => {
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(env), {
     bufferLogs: true,
   })
-  setupApp(app)
+  setupApp(app, env)
   const logger = app.get(Logger)
   await runMigrations(env.DATABASE_URL)
   logger.log('migrations applied', 'Bootstrap')

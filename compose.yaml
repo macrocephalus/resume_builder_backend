@@ -12,6 +12,8 @@ x-backend: &backend
     DATABASE_URL: postgres://cv:cv@postgres:5432/cv
     REDIS_URL: redis://redis:6379
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in the root .env}
+    # the Swagger UI at /api/docs; off in an image unless the root .env turns it on
+    API_DOCS: ${API_DOCS:-false}
     TZ: UTC
   restart: unless-stopped
 

@@ -14,7 +14,7 @@ describe('parseEnv', () => {
     expect(env.REDIS_URL).toBe('redis://127.0.0.1:56379')
   })
 
-  it('fills the defaults: queue prefix, model, concurrency, port, log level, no JWT secret', () => {
+  it('fills the defaults: queue prefix, model, concurrency, port, log level, no JWT secret, no API docs', () => {
     expect(parseEnv(complete)).toEqual({
       DATABASE_URL: 'postgres://cv:cv@postgres:5432/cv',
       REDIS_URL: 'redis://redis:6379',
@@ -25,7 +25,14 @@ describe('parseEnv', () => {
       PORT: 3000,
       LOG_LEVEL: 'info',
       JWT_SECRET: undefined,
+      API_DOCS: false,
     })
+  })
+
+  it('turns the API docs on only when API_DOCS says so', () => {
+    expect(parseEnv({ ...complete, API_DOCS: 'true' }).API_DOCS).toBe(true)
+    expect(parseEnv({ ...complete, API_DOCS: 'false' }).API_DOCS).toBe(false)
+    expect(() => parseEnv({ ...complete, API_DOCS: 'maybe' })).toThrow(/API_DOCS/)
   })
 
   it('reads numbers from strings and keeps the overrides', () => {

@@ -21,16 +21,15 @@ export type TestApp = {
  * generation timing and small limits. `overrides` replaces parts of the test env, e.g. `JWT_SECRET`.
  */
 export const createTestApp = async (overrides: Partial<Env> = {}): Promise<TestApp> => {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot({ ...testEnv(), ...overrides })],
-  })
+  const env = { ...testEnv(), ...overrides }
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(GENERATION_TIMING)
     .useValue(TEST_TIMING)
     .overrideProvider(GENERATION_LIMITS)
     .useValue(TEST_LIMITS)
     .compile()
   const app = moduleRef.createNestApplication<NestExpressApplication>()
-  setupApp(app)
+  setupApp(app, env)
   await app.init()
   // Nest types the server as `any`; supertest wants its `App`
   return { app, server: () => app.getHttpServer() as App, close: () => app.close() }

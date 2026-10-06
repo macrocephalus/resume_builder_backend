@@ -26,6 +26,8 @@ export const envSchema = z.object({
   JWT_SECRET: z.string().min(32).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('info'),
+  /** Serves the OpenAPI document and the Swagger UI at `/api/docs`; off unless asked for. */
+  API_DOCS: z.stringbool().default(false),
 })
 
 export type Env = z.infer<typeof envSchema>
