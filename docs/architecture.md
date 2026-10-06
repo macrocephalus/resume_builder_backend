@@ -59,7 +59,8 @@ backend/
 │   │   └── redis.module.ts        the REDIS token (ioredis, shared with BullMQ), closes on shutdown
 │   ├── common/
 │   │   ├── async/                 with-timeout.ts (stop waiting; the work is not cancelled)
-│   │   ├── errors/                app-error.ts (status, code from @cv/shared, details)
+│   │   ├── errors/                app-error.ts (status, code from @cv/shared, details),
+│   │   │                          validation-error.ts (a ZodError → 400 with details.fields)
 │   │   ├── http/                  error.filter.ts ({ error: { code, message, details } }),
 │   │   │                          zod-validation.pipe.ts (schemas from @cv/shared),
 │   │   │                          rate-limit.ts (@RateLimit per IP or user → 429 RATE_LIMITED),
@@ -84,7 +85,8 @@ backend/
 │   │   └── pdf-text.ts            pure: magic bytes, unpdf, ≤ 10 pages, ≥ 50 chars
 │   ├── cvs/
 │   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, delete, retry
-│   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV
+│   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV; lockOwned in a
+│   │   │                          transaction that writes from what it read
 │   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS)
 │   │   ├── from-statuses.ts       pure: the statuses a move to X is allowed from
 │   │   ├── cv.mapper.ts           row → Cv / CvSummary / CvStatusInfo (computeMatch); a draft
@@ -115,7 +117,9 @@ backend/
 │   │   └── queue-recovery.service.ts  on start + every 60 s: lost jobs back on the queue
 │   ├── questions/
 │   │   ├── questions.controller.ts    answer, skip
-│   │   ├── questions.service.ts       answerSchemaFor → applyAnswer (@cv/shared) → facts → CAS
+│   │   ├── questions.service.ts       lockOwned → answerSchemaFor → applyAnswer (@cv/shared) →
+│   │   │                              fact → CAS to ready when none is open
+│   │   ├── fact-of.ts                 pure: an answer → the { question, answer } kept in facts
 │   │   ├── new-question.ts            a question before it is stored; targetKey
 │   │   ├── build-auto-questions.ts    pure: findMissing + autoQuestionText
 │   │   ├── build-verifier-questions.ts  pure: confirm / cleared field / multi (computeMatch)
@@ -165,7 +169,9 @@ project's host ports 55432 / 56379, so only the key is needed),
 BullMQ is the 5.x line: 6.x moves the Redis client to a peer dependency and was not verified here.
 
 Rules:
-- Ownership checks live in `cvs`; other modules get a CV only through `CvsService.getOwned(id, userId)`.
+- Ownership checks live in `cvs`; other modules get a CV only through `CvsService.getOwned(id, userId)`,
+  or `lockOwned(id, userId, tx)` when a transaction writes from what it read (an answer re-applies
+  the draft, so two answers at once run one after the other).
 - Only `CvStatusService` writes `cvs.status` (a CAS on the machine's from-statuses, optionally
   narrowed: a generation's result is saved only into a CV still `generating`).
 - Errors that may carry user data (a failed query's parameters, the AI SDK's request body) are
@@ -353,8 +359,10 @@ Normalisation (`agents/verify/normalise.ts`): NFKC, lower case, one kind of quot
 spaces; numbers are compared by their digits ("1,200" = "1 200", "03" = "3"; "03.2019" is two
 numbers, a decimal part has at most two digits). Facts count by their
 answers only — a question's wording is not something the user said — so a `confirm` "yes" is
-stored with the claim as its answer (ticket 08). The full name and location are
-not checked.
+stored with the claim as its answer and a "no" as "No"; the fact's question quotes the claim, so
+the prompt shows what was denied. A `choice` on the skills is stored as the skill it adds
+("English: B2"), the ticked options and "Other" of a `multi` joined by commas
+(`questions/fact-of.ts`). The full name and location are not checked.
 
 Known limit (README): a quote proves the fact exists in the source, not that its translation is
 faithful — translation quality is trusted to the model, numbers and names are not.
