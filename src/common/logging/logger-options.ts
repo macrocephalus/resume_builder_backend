@@ -46,7 +46,7 @@ const answeredErrorCode = (res: ServerResponse): Record<string, string> => {
 /**
  * pino for both processes: JSON to stdout, or pino-pretty (a dev dependency) with `LOG_PRETTY`.
  * Every request line carries the request id and is logged by its outcome (with the error code
- * answered); a line logged during
+ * answered), a successful read at debug; a line logged during
  * the request carries only the id (and the user id the auth guard assigns); the cookie and
  * authorization headers are always redacted, the `content` of a line unless `LOG_CONTENT` is on.
  * The docker healthcheck's `GET /api/health` is not logged per request.
@@ -63,9 +63,13 @@ export const pinoHttpOptions = (
     censor: '[redacted]',
   },
   customProps: (_req, res) => answeredErrorCode(res),
-  customLogLevel: (_req, res, err) => {
+  customLogLevel: (req, res, err) => {
     if (err !== undefined || res.statusCode >= 500) return 'error'
-    return res.statusCode >= 400 ? 'warn' : 'info'
+    if (res.statusCode >= 400) return 'warn'
+    // the connection closed before the answer was sent
+    if (!res.writableEnded) return 'warn'
+    // reads, the frontend's status polling among them, are not what a user did
+    return req.method === 'GET' || req.method === 'HEAD' ? 'debug' : 'info'
   },
   autoLogging: {
     ignore: (req) => req.url === '/api/health',

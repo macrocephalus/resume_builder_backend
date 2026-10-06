@@ -132,11 +132,11 @@ describe('runDraftAgent', () => {
       [3, 'tool-calls'],
     ])
     expect(steps[0]).toMatchObject({ input: { cv: 'not a draft' }, result: null })
-    expect(steps[0]?.inputError).toEqual(expect.any(String))
+    expect(steps[0]?.toolError).toEqual(expect.any(String))
     expect(steps[1]).toMatchObject({
       input: invented,
       result: { accepted: false },
-      inputError: null,
+      toolError: null,
     })
     expect(steps[2]).toMatchObject({ result: { accepted: true } })
     expect(steps[2]?.usage.inputTokens).toBe(1000)

@@ -1,5 +1,6 @@
 import type { GenerationStage } from '@cv/shared'
 import {
+  type FinishReason,
   type LanguageModel,
   type LanguageModelUsage,
   type StepResult,
@@ -48,14 +49,14 @@ export type OnStage = (stage: GenerationStage) => Promise<void>
 export type DraftStep = {
   /** From 1. */
   number: number
-  finishReason: string
+  finishReason: FinishReason
   usage: LanguageModelUsage
   /** What the model answered: its text and the `submit_draft` input as sent (valid or not). */
   text: string
   input: unknown
-  /** The tool's verdict, or why the input never reached it (it failed the schema). */
+  /** The tool's verdict; else why it gave none (an input that failed the schema, say). */
   result: SubmitDraftResult | null
-  inputError: string | null
+  toolError: string | null
 }
 
 /** What the caller hears of an attempt: the stages for the UI, the prompt and steps for the logs. */
@@ -71,11 +72,11 @@ type DraftTools = { [SUBMIT_DRAFT]: ReturnType<typeof createSubmitDraftTool> }
 const stepOf = (step: StepResult<DraftTools>): DraftStep => {
   let input: unknown = null
   let result: SubmitDraftResult | null = null
-  let inputError: string | null = null
+  let toolError: string | null = null
   for (const part of step.content) {
     if (part.type === 'tool-call') input = part.input
     if (part.type === 'tool-result' && part.dynamic !== true) result = part.output
-    if (part.type === 'tool-error') inputError = String(part.error)
+    if (part.type === 'tool-error') toolError = String(part.error)
   }
   return {
     number: step.stepNumber + 1,
@@ -84,7 +85,7 @@ const stepOf = (step: StepResult<DraftTools>): DraftStep => {
     text: step.text,
     input,
     result,
-    inputError,
+    toolError,
   }
 }
 

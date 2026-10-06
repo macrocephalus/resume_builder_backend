@@ -167,13 +167,13 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
         randomUUID,
       )
       await this.setStage(cv.id, 'saving')
-      const saved = await this.saver.save({
+      const status = await this.saver.save({
         cvId: cv.id,
         attemptId,
         ...draft,
         outcome: outcomeOf(),
       })
-      if (!saved) {
+      if (status === null) {
         await closeAttempt(attemptId, 'failed', outcomeOf('discarded: the CV moved on'), this.db)
         this.logger.info(
           { cvId: cv.id },
@@ -184,7 +184,7 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
       this.logger.info(
         {
           cvId: cv.id,
-          status: draft.questions.length > 0 ? 'needs_input' : 'ready',
+          status,
           questions: draft.questions.length,
           verification: draft.verification,
           steps: run.steps,
@@ -305,9 +305,9 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
         finishReason: step.finishReason,
         accepted: step.result?.accepted ?? null,
         problems: problems.length,
-        invalidInput: step.inputError !== null,
+        toolError: step.toolError !== null,
         tokens: tokensOf(step.usage),
-        [CONTENT]: { text: step.text, input: step.input, problems, inputError: step.inputError },
+        [CONTENT]: { text: step.text, input: step.input, problems, toolError: step.toolError },
       },
       'agent step',
     )

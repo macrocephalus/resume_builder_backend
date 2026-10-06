@@ -54,8 +54,11 @@ export class CvStatusService {
       .where(and(eq(cvs.id, cvId), inArray(cvs.status, [...froms])))
       .returning({ id: cvs.id })
     const moved = rows.length > 0
-    // inside a transaction the move is still undone by a rollback
-    this.logger.debug({ cvId, to, from: froms, moved }, moved ? 'status moved' : 'status not moved')
+    // a move inside the caller's transaction is still undone by a rollback: the line says so
+    this.logger.debug(
+      { cvId, to, from: froms, moved, inTransaction: executor !== this.db },
+      moved ? 'status moved' : 'status not moved',
+    )
     return moved
   }
 

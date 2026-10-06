@@ -125,12 +125,15 @@ export class CvsService {
         cvId: row.id,
         jobId,
         parentCvId: row.parentCvId,
-        targetRole: row.targetRole,
         language: row.language,
         sourceType: row.sourceType,
         sourceChars: row.sourceText.length,
         facts: row.facts.length,
-        [CONTENT]: { roleContext: row.roleContext, sourceText: row.sourceText },
+        [CONTENT]: {
+          targetRole: row.targetRole,
+          roleContext: row.roleContext,
+          sourceText: row.sourceText,
+        },
       },
       'CV created',
     )

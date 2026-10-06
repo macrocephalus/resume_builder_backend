@@ -1,4 +1,4 @@
-import type { CvData, Requirement } from '@cv/shared'
+import type { CvData, CvStatus, Requirement } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
 import { TransactionRollbackError, eq, sql } from 'drizzle-orm'
 import { CvStatusService } from '../cvs/cv-status.service'
@@ -19,6 +19,9 @@ export type DraftToSave = {
   outcome: AttemptOutcome
 }
 
+/** Where a saved draft leaves its CV. */
+export type SavedStatus = Extract<CvStatus, 'needs_input' | 'ready'>
+
 /** Writes a finished attempt's draft (backend architecture §3, step 6). */
 @Injectable()
 export class DraftSaver {
@@ -30,10 +33,11 @@ export class DraftSaver {
   /**
    * One transaction: the move to `needs_input` (open questions) or `ready` by compare-and-set,
    * the draft and what comes with it, `version + 1`, the questions, the closed attempt row.
-   * `false` when the CV is no longer `generating` (deleted, say): then nothing is written.
+   * Answers the status it moved to; `null` when the CV is no longer `generating` (deleted, say):
+   * then nothing is written.
    */
-  async save(draft: DraftToSave): Promise<boolean> {
-    const to = draft.questions.length > 0 ? 'needs_input' : 'ready'
+  async save(draft: DraftToSave): Promise<SavedStatus | null> {
+    const to: SavedStatus = draft.questions.length > 0 ? 'needs_input' : 'ready'
     try {
       await this.db.transaction(async (tx) => {
         const moved = await this.statuses.transition(draft.cvId, to, {
@@ -63,9 +67,9 @@ export class DraftSaver {
         }
         await closeAttempt(draft.attemptId, 'succeeded', draft.outcome, tx)
       })
-      return true
+      return to
     } catch (error) {
-      if (error instanceof TransactionRollbackError) return false
+      if (error instanceof TransactionRollbackError) return null
       throw error
     }
   }

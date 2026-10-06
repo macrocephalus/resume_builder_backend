@@ -22,11 +22,16 @@ const linesOf = (
   return lines
 }
 
-const statusOf = (statusCode: number, err?: Error) =>
+/** The level of the line of a `method` request answered with `statusCode`. */
+const levelOf = (
+  method: string,
+  statusCode: number,
+  { err, ended = true }: { err?: Error; ended?: boolean } = {},
+) =>
   pinoHttpOptions(ENV).customLogLevel?.(
-    // the level depends on the status only; the request is not read
-    {} as never,
-    { statusCode } as never,
+    // only the fields the level depends on: the method, the status, whether the answer was sent
+    { method } as never,
+    { statusCode, writableEnded: ended } as never,
     err,
   )
 
@@ -53,13 +58,15 @@ describe('pinoHttpOptions', () => {
     expect(linesOf({ ...ENV, LOG_LEVEL: 'info' }, (logger) => logger.debug('hidden'))).toEqual([])
   })
 
-  it('logs a request by its outcome: 5xx error, 4xx warn, else info', () => {
-    expect(statusOf(200)).toBe('info')
-    expect(statusOf(302)).toBe('info')
-    expect(statusOf(404)).toBe('warn')
-    expect(statusOf(429)).toBe('warn')
-    expect(statusOf(500)).toBe('error')
-    expect(statusOf(200, new Error('aborted'))).toBe('error')
+  it('logs a request by its outcome: 5xx error, 4xx or aborted warn, a read debug, else info', () => {
+    expect(levelOf('POST', 202)).toBe('info')
+    expect(levelOf('DELETE', 204)).toBe('info')
+    expect(levelOf('GET', 200)).toBe('debug')
+    expect(levelOf('GET', 404)).toBe('warn')
+    expect(levelOf('POST', 429)).toBe('warn')
+    expect(levelOf('GET', 200, { ended: false })).toBe('warn')
+    expect(levelOf('GET', 500)).toBe('error')
+    expect(levelOf('POST', 200, { err: new Error('socket hang up') })).toBe('error')
   })
 
   it('puts the error code the filter answered with on the request line', () => {

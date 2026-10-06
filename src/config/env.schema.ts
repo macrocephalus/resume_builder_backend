@@ -28,7 +28,8 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   /**
    * Logs what the user wrote and the model answered (a CV's source, answers, the prompt, the
-   * submissions) under `content`, at debug. Personal data: for development only, off by default.
+   * submissions) under the `content` of the line about it. Personal data: for development only,
+   * off by default.
    */
   LOG_CONTENT: z.stringbool().default(false),
   /** Human-readable lines through pino-pretty, a dev dependency: not in the docker image. */
