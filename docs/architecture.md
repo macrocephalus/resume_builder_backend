@@ -146,7 +146,8 @@ backend/
 │   │   │       ├── draft.system.ts    the rules
 │   │   │       └── draft.example.ts   a static submit_draft example
 │   │   ├── draft/
-│   │   │   ├── draft.agent.ts         ToolLoopAgent: tools, stopWhen, timeout, hooks → onStage
+│   │   │   ├── draft.agent.ts         ToolLoopAgent: tools, stopWhen, timeout; hooks → onStage,
+│   │   │   │                          onPrompt and onStep (each step's input, verdict, usage)
 │   │   │   ├── draft-submission.schema.ts
 │   │   │   ├── stop-when-accepted.ts
 │   │   │   └── tools/                 one file per tool
@@ -462,11 +463,37 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
 
 ## 6a. Logs
 
-pino (`nestjs-pino`) to stdout as JSON, level from `LOG_LEVEL` (default `info`; the tests run
-`silent`). Each line carries requestId (`x-request-id`, kept from the request or generated, and
-returned in the response), userId, cvId, jobId where known; LLM errors are logged in full. The
-docker healthcheck's `GET /api/health` gets no request line. Never logged: `source_text`, answers,
-passwords, the cookie and authorization headers (redacted).
+pino (`nestjs-pino`, options in `common/logging/logger-options.ts`) to stdout as JSON, or through
+pino-pretty with `LOG_PRETTY` (a dev dependency, so not in the docker image). Level from
+`LOG_LEVEL` (`silent|error|warn|info|debug|trace`, default `info`; the tests run `silent`).
+`pnpm dev` and `pnpm dev:worker` run `debug` with content and pretty lines.
+
+- Every line carries what is known of requestId (`x-request-id`, kept from the request or
+  generated, and returned in the response), userId, cvId, jobId, attempt. A line logged during a
+  request carries only the request's id; the request itself is on its response line, logged by
+  its outcome: `error` for a 5xx or a broken connection, `warn` for a 4xx with the `errorCode`
+  answered, else `info`. The docker healthcheck's `GET /api/health` gets no request line. In the
+  worker a job runs in its own logging context, so every line of it (the services' too) carries
+  jobId and attempt. A field is bound once: a line never repeats a key its context holds.
+- `error`: what needs a look — an unhandled error (500), `DATA_CORRUPT`, Redis or the queue
+  failing, a failure not recorded. `warn`: what went wrong and was handled — a failed attempt
+  (with its error code and whether it retries), a PDF pdf.js could not parse, a lost job put
+  back, a stage not written.
+- `info`: what a user or the worker did — signed up, logged in, PDF read (pages, chars), CV
+  created (role, language, source type and size, facts, parent), retried, edited (version),
+  deleted, a question answered or skipped (where the CV is now); an attempt started (model,
+  prompt version) and its draft saved (status, questions, verification counts, steps, tokens,
+  duration).
+- `debug`: the steps in between — the limits counted, a job queued, every status move (also
+  the ones a compare-and-set refused), each agent step (finish reason, verdict, problems, tokens),
+  a PDF rendered (bytes, ms), a refused login or upload.
+- **Content.** What the user wrote or the model answered goes only under a line's `content` key,
+  at `info` or `debug`: the source text and role note of a new CV, an extracted PDF's text and
+  filename, an email at signup and refused login, an answer, an edited draft, the prompt's user
+  message, each step's model text, `submit_draft` input and problems. pino redacts `content`
+  (`"[redacted]"`) unless `LOG_CONTENT` is on — personal data, for development only. Never
+  logged, whatever the flags: passwords, the session token, the cookie and authorization headers
+  (redacted). LLM errors are logged through `safeError` (§1, "Rules").
 
 ## 6b. API docs (development only)
 

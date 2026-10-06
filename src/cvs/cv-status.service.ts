@@ -1,6 +1,7 @@
 import type { CvStatus, GenerationStage } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
 import { and, count, eq, inArray, sql } from 'drizzle-orm'
+import { PinoLogger } from 'nestjs-pino'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
 import { cvQuestions, cvs } from '../database/schema'
 import { fromStatuses } from './from-statuses'
@@ -28,7 +29,12 @@ export type TransitionOptions = {
  */
 @Injectable()
 export class CvStatusService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(CvStatusService.name)
+  }
 
   /** Moves the CV to `to`; `false` when it was not in an allowed status (or is gone). */
   async transition(
@@ -47,7 +53,10 @@ export class CvStatusService {
       .set({ ...changes, status: to, updatedAt: sql`now()` })
       .where(and(eq(cvs.id, cvId), inArray(cvs.status, [...froms])))
       .returning({ id: cvs.id })
-    return rows.length > 0
+    const moved = rows.length > 0
+    // inside a transaction the move is still undone by a rollback
+    this.logger.debug({ cvId, to, from: froms, moved }, moved ? 'status moved' : 'status not moved')
+    return moved
   }
 
   /**

@@ -11,10 +11,11 @@ import { type Job, UnrecoverableError, Worker } from 'bullmq'
 import { desc, eq } from 'drizzle-orm'
 import type { Redis } from 'ioredis'
 import { PinoLogger } from 'nestjs-pino'
-import { type DraftRun, runDraftAgent } from '../agents/draft/draft.agent'
+import { type DraftRun, type DraftStep, runDraftAgent } from '../agents/draft/draft.agent'
 import { LANGUAGE_MODEL, modelIdOf } from '../agents/llm'
 import { PROMPT_VERSION } from '../agents/prompt/prompt-builder'
 import { AppError } from '../common/errors/app-error'
+import { CONTENT } from '../common/logging/logger-options'
 import { safeError } from '../common/logging/safe-error'
 import { ENV } from '../config/config.module'
 import { GENERATION } from '../config/limits'
@@ -25,7 +26,13 @@ import { CvsService } from '../cvs/cvs.service'
 import { DATABASE, type Database } from '../database/database.module'
 import { generationJobs } from '../database/schema'
 import { REDIS } from '../redis/redis.module'
-import { type AttemptOutcome, closeAttempt, closeStalledAttempts, openAttempt } from './attempt-log'
+import {
+  type AttemptOutcome,
+  closeAttempt,
+  closeStalledAttempts,
+  openAttempt,
+  tokensOf,
+} from './attempt-log'
 import { NoValidSubmissionError, classifyError } from './classify-error'
 import { type GenerationErrorCode, failure } from './generation-errors'
 import {
@@ -40,14 +47,11 @@ import { DraftSaver } from './save-draft'
 /** Where a failed attempt moves its CV. */
 type NextStatus = { to: 'retrying' } | { to: 'failed'; code: GenerationErrorCode }
 
+/** What every line about an attempt carries. */
+type AttemptIds = { cvId: string; jobId: string; attempt: number }
+
 /** The attempt a failure is recorded for. */
-type AttemptRef = {
-  cvId: string
-  jobId: string
-  attempt: number
-  attemptId: string | null
-  lastAttempt: boolean
-}
+type AttemptRef = AttemptIds & { attemptId: string | null; lastAttempt: boolean }
 
 /**
  * The worker's BullMQ processor for the generation queue (backend architecture §1, §3): one run
@@ -73,12 +77,19 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
   }
 
   onApplicationBootstrap(): void {
-    this.worker = new Worker<GenerationJobData>(GENERATION_QUEUE_NAME, (job) => this.process(job), {
-      connection: this.redis,
-      prefix: this.env.QUEUE_PREFIX,
-      concurrency: this.env.WORKER_CONCURRENCY,
-      lockDuration: GENERATION.lockMs,
-    })
+    this.worker = new Worker<GenerationJobData>(
+      GENERATION_QUEUE_NAME,
+      (job) =>
+        // every line of the job, also those of the services it calls, carries the job id and
+        // the attempt; the CV id each line names itself (the status service's lines do)
+        this.logger.runInContext(() => this.process(job), { bindings: { jobId: job.id } }),
+      {
+        connection: this.redis,
+        prefix: this.env.QUEUE_PREFIX,
+        concurrency: this.env.WORKER_CONCURRENCY,
+        lockDuration: GENERATION.lockMs,
+      },
+    )
     this.worker.on('error', (err) => this.logger.error({ err }, 'generation worker error'))
   }
 
@@ -98,18 +109,23 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
     }
     const cv = await this.cvOf(jobId)
     if (!cv) {
-      this.logger.info({ jobId }, 'generation job without its CV; nothing to do')
+      this.logger.info('generation job without its CV; nothing to do')
       return
     }
     // BullMQ counts the runs that failed; a stalled run is not counted, so its re-run keeps it
     const attempt = job.attemptsMade + 1
     const lastAttempt = attempt >= (job.opts.attempts ?? 1)
-    const ids = { cvId: cv.id, jobId, attempt }
+    const ids: AttemptIds = { cvId: cv.id, jobId, attempt }
+    this.logger.assign({ attempt })
     if (!(await this.begin(cv.id, jobId, attempt))) {
-      this.logger.info(ids, 'CV not waiting for a generation; job ends')
+      this.logger.info({ cvId: cv.id }, 'CV not waiting for a generation; job ends')
       return
     }
-    this.logger.info(ids, 'generation attempt started')
+    const model = modelIdOf(this.model)
+    this.logger.info(
+      { cvId: cv.id, model, promptVersion: PROMPT_VERSION },
+      'generation attempt started',
+    )
 
     const startedAt = Date.now()
     let attemptId: string | null = null
@@ -123,7 +139,7 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
 
     try {
       attemptId = await openAttempt(
-        { jobId, attempt, model: modelIdOf(this.model), promptVersion: PROMPT_VERSION },
+        { jobId, attempt, model, promptVersion: PROMPT_VERSION },
         this.db,
       )
       run = await runDraftAgent(
@@ -136,7 +152,12 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
           language: cv.language,
           today: new Date(),
         },
-        (stage) => this.setStage(cv.id, stage),
+        {
+          onStage: (stage) => this.setStage(cv.id, stage),
+          onPrompt: (message) =>
+            this.logger.debug({ cvId: cv.id, [CONTENT]: { prompt: message } }, 'prompt built'),
+          onStep: (step) => this.logStep(cv.id, step),
+        },
         this.timing.agent,
       )
       if (run.submission === null) throw new NoValidSubmissionError(run.steps)
@@ -154,10 +175,24 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
       })
       if (!saved) {
         await closeAttempt(attemptId, 'failed', outcomeOf('discarded: the CV moved on'), this.db)
-        this.logger.info(ids, 'CV changed or deleted during the attempt; draft discarded')
+        this.logger.info(
+          { cvId: cv.id },
+          'CV changed or deleted during the attempt; draft discarded',
+        )
         return
       }
-      this.logger.info({ ...ids, steps: run.steps }, 'draft saved')
+      this.logger.info(
+        {
+          cvId: cv.id,
+          status: draft.questions.length > 0 ? 'needs_input' : 'ready',
+          questions: draft.questions.length,
+          verification: draft.verification,
+          steps: run.steps,
+          tokens: tokensOf(run.usage),
+          durationMs: Date.now() - startedAt,
+        },
+        'draft saved',
+      )
     } catch (err) {
       await this.failAttempt(err, { ...ids, attemptId, lastAttempt }, outcomeOf)
     }
@@ -176,7 +211,7 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
     const error = safeError(err)
     const { code, retryable } = classifyError(err)
     const retry = retryable && !lastAttempt
-    this.logger.warn({ ...ids, err: error, code, retry }, 'generation attempt failed')
+    this.logger.warn({ cvId: ids.cvId, err: error, code, retry }, 'generation attempt failed')
     let moved: boolean
     try {
       moved = await this.recordFailure(
@@ -186,11 +221,11 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
         outcomeOf(`${error.name}: ${error.message}`),
       )
     } catch (recordErr) {
-      this.logger.error({ ...ids, err: safeError(recordErr) }, 'failure not recorded')
+      this.logger.error({ cvId: ids.cvId, err: safeError(recordErr) }, 'failure not recorded')
       throw new Error(`attempt ${ids.attempt} failed: ${code}; failure not recorded`)
     }
     if (!moved) {
-      this.logger.info(ids, 'CV moved on before its failure was recorded; job ends')
+      this.logger.info({ cvId: ids.cvId }, 'CV moved on before its failure was recorded; job ends')
       return
     }
     // the error itself may quote the user's data, and BullMQ keeps what it is thrown in Redis
@@ -255,6 +290,27 @@ export class GenerationProcessor implements OnApplicationBootstrap, OnApplicatio
         executor: tx,
       })
     })
+  }
+
+  /**
+   * One agent step at debug: the verdict and the tokens; what the model sent and the problems
+   * found in it (they quote the CV) as content.
+   */
+  private logStep(cvId: string, step: DraftStep): void {
+    const problems = step.result?.accepted === false ? step.result.problems : []
+    this.logger.debug(
+      {
+        cvId,
+        step: step.number,
+        finishReason: step.finishReason,
+        accepted: step.result?.accepted ?? null,
+        problems: problems.length,
+        invalidInput: step.inputError !== null,
+        tokens: tokensOf(step.usage),
+        [CONTENT]: { text: step.text, input: step.input, problems, inputError: step.inputError },
+      },
+      'agent step',
+    )
   }
 
   /** Progress text only: a failed write is logged and the attempt goes on. */

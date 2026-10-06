@@ -9,7 +9,7 @@ import {
 } from '../../../test/helpers/model'
 import type { PromptInput } from '../prompt/prompt-builder'
 import type { DraftSubmission } from './draft-submission.schema'
-import { DRAFT_AGENT_LIMITS, runDraftAgent } from './draft.agent'
+import { DRAFT_AGENT_LIMITS, type DraftStep, runDraftAgent } from './draft.agent'
 
 const input: PromptInput = {
   source: SOURCE_TEXT,
@@ -33,7 +33,7 @@ const run = async (...steps: Parameters<typeof scriptedModel>) => {
   const onStage = async (stage: GenerationStage) => {
     stages.push(stage)
   }
-  const result = await runDraftAgent(model, input, onStage, DRAFT_AGENT_LIMITS)
+  const result = await runDraftAgent(model, input, { onStage }, DRAFT_AGENT_LIMITS)
   return { result, stages, model }
 }
 
@@ -104,6 +104,42 @@ describe('runDraftAgent', () => {
     )
     expect(model.doGenerateCalls).toHaveLength(3)
     expect(result.submission?.cv.experience[0]?.bullets.at(-1)).toBe('Cut costs by 30%')
+  })
+
+  it('tells the caller the prompt and each step: input, verdict, usage', async () => {
+    const prompts: string[] = []
+    const steps: DraftStep[] = []
+    const invented = withInventedBullet()
+    await runDraftAgent(
+      scriptedModel(
+        submitStep({ cv: 'not a draft' }),
+        submitStep(invented),
+        submitStep(completeSubmission()),
+      ),
+      input,
+      {
+        onStage: async () => {},
+        onPrompt: (message) => prompts.push(message),
+        onStep: (step) => steps.push(step),
+      },
+      DRAFT_AGENT_LIMITS,
+    )
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(SOURCE_TEXT.split('\n')[0])
+    expect(steps.map((step) => [step.number, step.finishReason])).toEqual([
+      [1, 'tool-calls'],
+      [2, 'tool-calls'],
+      [3, 'tool-calls'],
+    ])
+    expect(steps[0]).toMatchObject({ input: { cv: 'not a draft' }, result: null })
+    expect(steps[0]?.inputError).toEqual(expect.any(String))
+    expect(steps[1]).toMatchObject({
+      input: invented,
+      result: { accepted: false },
+      inputError: null,
+    })
+    expect(steps[2]).toMatchObject({ result: { accepted: true } })
+    expect(steps[2]?.usage.inputTokens).toBe(1000)
   })
 
   it('has no submission when the model answers in text', async () => {

@@ -11,6 +11,14 @@ export type AttemptOutcome = {
   error?: string
 }
 
+/** A run's token counts, as the attempt row and the logs keep them. */
+export const tokensOf = (usage: LanguageModelUsage) => ({
+  input: usage.inputTokens ?? null,
+  output: usage.outputTokens ?? null,
+  cacheRead: usage.inputTokenDetails.cacheReadTokens ?? null,
+  cacheWrite: usage.inputTokenDetails.cacheWriteTokens ?? null,
+})
+
 /** Opens the audit row of an attempt; nothing is read back from it for behaviour. */
 export const openAttempt = async (
   values: { jobId: string; attempt: number; model: string; promptVersion: string },
@@ -30,15 +38,16 @@ export const closeAttempt = async (
   { steps, usage, durationMs, error }: AttemptOutcome,
   executor: Executor,
 ): Promise<void> => {
+  const tokens = usage === null ? null : tokensOf(usage)
   await executor
     .update(generationAttempts)
     .set({
       status,
       agentSteps: steps,
-      inputTokens: usage?.inputTokens ?? null,
-      outputTokens: usage?.outputTokens ?? null,
-      cacheReadTokens: usage?.inputTokenDetails.cacheReadTokens ?? null,
-      cacheWriteTokens: usage?.inputTokenDetails.cacheWriteTokens ?? null,
+      inputTokens: tokens?.input ?? null,
+      outputTokens: tokens?.output ?? null,
+      cacheReadTokens: tokens?.cacheRead ?? null,
+      cacheWriteTokens: tokens?.cacheWrite ?? null,
       durationMs,
       error: error ?? null,
       finishedAt: sql`now()`,

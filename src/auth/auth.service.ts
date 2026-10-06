@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto'
 import type { Credentials, User } from '@cv/shared'
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
+import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../common/errors/app-error'
+import { CONTENT } from '../common/logging/logger-options'
 import { DATABASE, type Database } from '../database/database.module'
 import { users } from '../database/schema'
 import { invalidCredentials, notSignedIn } from './auth-errors'
@@ -20,7 +22,10 @@ export class AuthService implements OnModuleInit {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly sessions: SessionService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(AuthService.name)
+  }
 
   async onModuleInit(): Promise<void> {
     this.dummyHash = await hashPassword(randomBytes(32).toString('base64url'))
@@ -35,6 +40,7 @@ export class AuthService implements OnModuleInit {
       .onConflictDoNothing({ target: users.email })
       .returning({ id: users.id, email: users.email })
     if (!user) throw new AppError(409, 'EMAIL_TAKEN', 'An account with this email already exists.')
+    this.logger.info({ userId: user.id, [CONTENT]: { email } }, 'signed up')
     return this.startSession(user)
   }
 
@@ -42,7 +48,11 @@ export class AuthService implements OnModuleInit {
   async login({ email, password }: Credentials): Promise<Session> {
     const [row] = await this.db.select().from(users).where(eq(users.email, email))
     const valid = await verifyPassword(row?.passwordHash ?? this.dummyHash, password)
-    if (!row || !valid) throw invalidCredentials()
+    if (!row || !valid) {
+      this.logger.debug({ knownEmail: row !== undefined, [CONTENT]: { email } }, 'login refused')
+      throw invalidCredentials()
+    }
+    this.logger.info({ userId: row.id }, 'logged in')
     return this.startSession({ id: row.id, email: row.email })
   }
 

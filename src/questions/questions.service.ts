@@ -11,8 +11,10 @@ import {
 } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
 import { and, eq, sql } from 'drizzle-orm'
+import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
+import { CONTENT } from '../common/logging/logger-options'
 import { validationError } from '../common/errors/validation-error'
 import { CvStatusService } from '../cvs/cv-status.service'
 import { type CvRow, requireDraft, toQuestion } from '../cvs/cv.mapper'
@@ -29,6 +31,14 @@ const invalidState = (message: string) => new AppError(409, 'INVALID_STATE', mes
 
 type OpenQuestion = { cv: CvRow; question: Question }
 
+/** What the line about a closed question says: where its CV is now. */
+const closedQuestion = (cv: Cv, questionId: string) => ({
+  cvId: cv.id,
+  questionId,
+  status: cv.status,
+  version: cv.version,
+})
+
 /** Answer and skip (root `docs/architecture.md` §6.5, `docs/api.md` "Questions"). */
 @Injectable()
 export class QuestionsService {
@@ -36,7 +46,10 @@ export class QuestionsService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly cvs: CvsService,
     private readonly statuses: CvStatusService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(QuestionsService.name)
+  }
 
   /**
    * Writes the answer into the draft as written (the shared `applyAnswer`) and keeps it as a fact
@@ -44,7 +57,7 @@ export class QuestionsService {
    * `answered`, and `ready` once no question is left open. Answers the CV as this answer left it.
    */
   async answer(userId: string, cvId: string, questionId: string, body: Answer): Promise<Cv> {
-    return this.db.transaction(async (tx) => {
+    const updated = await this.db.transaction(async (tx) => {
       const { cv, question } = await this.openQuestion(userId, cvId, questionId, tx)
       if (body.kind !== question.kind) {
         throw invalidState(`This question takes a "${question.kind}" answer.`)
@@ -73,11 +86,16 @@ export class QuestionsService {
       await this.statuses.readyIfNoneOpen(cv.id, tx)
       return this.cvs.get(userId, cv.id, tx)
     })
+    this.logger.info(
+      { ...closedQuestion(updated, questionId), kind: body.kind, [CONTENT]: { answer: body } },
+      'question answered',
+    )
+    return updated
   }
 
   /** Closes a `text` / `choice` / `multi` question; the draft and its version stay as they are. */
   async skip(userId: string, cvId: string, questionId: string): Promise<Cv> {
-    return this.db.transaction(async (tx) => {
+    const updated = await this.db.transaction(async (tx) => {
       const { cv, question } = await this.openQuestion(userId, cvId, questionId, tx)
       if (!SKIPPABLE_KINDS.some((kind) => kind === question.kind)) {
         throw invalidState('A confirm question must be answered yes or no.')
@@ -86,6 +104,8 @@ export class QuestionsService {
       await this.statuses.readyIfNoneOpen(cv.id, tx)
       return this.cvs.get(userId, cv.id, tx)
     })
+    this.logger.info(closedQuestion(updated, questionId), 'question skipped')
+    return updated
   }
 
   /**

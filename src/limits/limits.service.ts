@@ -1,6 +1,7 @@
 import { CV_STATUSES, type Usage, isInProgress } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
 import { and, count, eq, gt, inArray, min, sql } from 'drizzle-orm'
+import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../common/errors/app-error'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
 import { cvs, generationJobs, users } from '../database/schema'
@@ -15,7 +16,10 @@ export class LimitsService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(GENERATION_LIMITS) private readonly allowed: GenerationLimits,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(LimitsService.name)
+  }
 
   /** `GET /api/usage`: what the user has used of both limits. */
   async usage(userId: string): Promise<Usage> {
@@ -40,6 +44,12 @@ export class LimitsService {
     // the weakest lock two starts conflict on; inserts that only reference the user don't wait
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('no key update')
     const hourly = await this.hourly(userId, tx)
+    const active = hourly.full ? null : await this.active(userId, tx)
+    this.logger.debug(
+      // the user id is on the line already: the auth guard assigns it to the request
+      { hourly: { used: hourly.used, limit: hourly.limit }, active },
+      'generation limits checked',
+    )
     if (hourly.full) {
       throw new AppError(
         429,
@@ -50,7 +60,7 @@ export class LimitsService {
       )
     }
     const limit = this.allowed.activePerUser
-    if ((await this.active(userId, tx)) >= limit) {
+    if (active !== null && active >= limit) {
       throw new AppError(
         429,
         'TOO_MANY_ACTIVE',

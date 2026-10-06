@@ -11,8 +11,10 @@ import {
 } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
 import { and, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
+import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
+import { CONTENT } from '../common/logging/logger-options'
 import { GENERATION } from '../config/limits'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
 import { cvQuestions, cvs, generationJobs } from '../database/schema'
@@ -68,7 +70,10 @@ export class CvsService {
     private readonly producer: GenerationProducer,
     private readonly statusService: CvStatusService,
     @Inject(PDF_FONTS) private readonly fonts: CvFonts,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(CvsService.name)
+  }
 
   /**
    * The only way to a CV: the row when `userId` owns it, else `404` (also for an id that is not
@@ -115,6 +120,20 @@ export class CvsService {
       if (!created) throw new Error('cvs insert returned no row')
       return { row: created, jobId: await this.producer.recordJob(created, tx) }
     })
+    this.logger.info(
+      {
+        cvId: row.id,
+        jobId,
+        parentCvId: row.parentCvId,
+        targetRole: row.targetRole,
+        language: row.language,
+        sourceType: row.sourceType,
+        sourceChars: row.sourceText.length,
+        facts: row.facts.length,
+        [CONTENT]: { roleContext: row.roleContext, sourceText: row.sourceText },
+      },
+      'CV created',
+    )
     await this.producer.enqueue(jobId, row.id)
     return toCv(row, [], await this.queuePositionOf(row))
   }
@@ -166,6 +185,7 @@ export class CvsService {
       if (!moved) throw notRetryable()
       return this.producer.recordJob(row, tx)
     })
+    this.logger.info({ cvId: row.id, jobId }, 'generation retried')
     await this.producer.enqueue(jobId, row.id)
     return this.get(userId, row.id)
   }
@@ -177,7 +197,7 @@ export class CvsService {
    * this edit left it, read before the lock is released.
    */
   async edit(userId: string, id: string, body: PatchCvBody): Promise<Cv> {
-    return this.db.transaction(async (tx) => {
+    const cv = await this.db.transaction(async (tx) => {
       const row = await this.lockOwned(id, userId, tx)
       if (!hasDraft(row.status)) throw notEditable()
       if (body.version !== row.version) {
@@ -205,6 +225,18 @@ export class CvsService {
       }
       return this.get(userId, row.id, tx)
     })
+    this.logger.info(
+      {
+        cvId: cv.id,
+        version: cv.version,
+        status: cv.status,
+        title: body.title !== undefined,
+        data: body.data !== undefined,
+        [CONTENT]: { title: body.title, data: body.data },
+      },
+      'CV edited',
+    )
+    return cv
   }
 
   /** The whole CV; inside a transaction that changed it, as that transaction left it. */
@@ -221,7 +253,13 @@ export class CvsService {
   async pdf(userId: string, id: string): Promise<CvPdf> {
     const row = await this.getOwned(id, userId)
     if (!hasDraft(row.status)) throw noDraftYet()
-    return { pdf: await renderCvPdf(requireDraft(row), row.language, this.fonts), title: row.title }
+    const startedAt = Date.now()
+    const pdf = await renderCvPdf(requireDraft(row), row.language, this.fonts)
+    this.logger.debug(
+      { cvId: row.id, bytes: pdf.length, durationMs: Date.now() - startedAt },
+      'pdf rendered',
+    )
+    return { pdf, title: row.title }
   }
 
   /**
@@ -231,6 +269,7 @@ export class CvsService {
   async delete(userId: string, id: string): Promise<void> {
     const row = await this.getOwned(id, userId)
     await this.db.delete(cvs).where(and(eq(cvs.id, row.id), eq(cvs.userId, userId)))
+    this.logger.info({ cvId: row.id, status: row.status }, 'CV deleted')
   }
 
   /**

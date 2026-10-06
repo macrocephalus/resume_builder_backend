@@ -58,6 +58,7 @@ export class GenerationProducer {
         TIMEOUTS.enqueueMs,
         'adding a generation job',
       )
+      this.logger.debug({ cvId, jobId }, 'generation job queued')
     } catch (err) {
       this.logger.error(
         { err: safeError(err), cvId, jobId },
