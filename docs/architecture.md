@@ -441,7 +441,9 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
   CV keeps its jobs, so it doesn't free the limit. The window is counted on the database's clock
   (the one that stamped the rows); `resetsAt` is when the oldest counted row leaves it (with none,
   an hour from now) and `Retry-After` the seconds until then. The hourly limit is checked before
-  the active one, in the transaction that starts the generation, on create and on Retry.
+  the active one, in the transaction that starts the generation, on create and on Retry; that
+  transaction first locks the user's row, so two starts at the same moment count one after the
+  other and can't both take the last place.
   `@nestjs/throttler` for login (per IP) and
   ingest (per user: the id the auth guard verified, so one IP can hold many users).
 - Intake takes one multipart part, `file`, ≤ 5 MB; another field or file is `400`, a missing file
@@ -449,10 +451,10 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
   storage) and pdf.js reads only its text layer; the minimum of 50 characters counts visible
   ones, so a scan with stray whitespace still gets `422`.
 - Known simplifications (README): JWT can't be revoked before expiry; signup reveals that an email
-  is taken; count-then-insert race on limits is accepted; answers have no hourly limit (with the
-  AnswerAgent cut, an answer makes no model call); pdf.js parses an upload on the api's event
-  loop, so a crafted 5 MB PDF can slow other requests for a moment (bounded by the size, page
-  and per-user limits; a worker thread would remove it).
+  is taken; answers have no hourly limit (with the AnswerAgent cut, an answer makes no model
+  call); pdf.js parses an upload on the api's event loop, so a crafted 5 MB PDF can slow other
+  requests for a moment (bounded by the size, page and per-user limits; a worker thread would
+  remove it).
 
 ## 6a. Logs
 

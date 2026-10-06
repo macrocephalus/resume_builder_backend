@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import { and, count, eq, gt, inArray, min, sql } from 'drizzle-orm'
 import { AppError } from '../common/errors/app-error'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
-import { cvs, generationJobs } from '../database/schema'
+import { cvs, generationJobs, users } from '../database/schema'
 import { GENERATION_LIMITS, type GenerationLimits } from './generation-limits'
 import { type HourlyWindow, hourlyWindow } from './hourly-window'
 
@@ -33,10 +33,13 @@ export class LimitsService {
   /**
    * `429 RATE_LIMITED` (with `Retry-After`) when the user started the hourly maximum, else
    * `429 TOO_MANY_ACTIVE` when they have the maximum of CVs in progress. Runs in the transaction
-   * that then starts one; two requests at the same moment can both pass (accepted).
+   * that then starts one, and locks the user's row until it ends: two starts of one user at the
+   * same moment count one after the other, so the second sees the first.
    */
-  async assertCanStart(userId: string, executor: Executor = this.db): Promise<void> {
-    const hourly = await this.hourly(userId, executor)
+  async assertCanStart(userId: string, tx: Executor): Promise<void> {
+    // the weakest lock two starts conflict on; inserts that only reference the user don't wait
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('no key update')
+    const hourly = await this.hourly(userId, tx)
     if (hourly.full) {
       throw new AppError(
         429,
@@ -47,7 +50,7 @@ export class LimitsService {
       )
     }
     const limit = this.allowed.activePerUser
-    if ((await this.active(userId, executor)) >= limit) {
+    if ((await this.active(userId, tx)) >= limit) {
       throw new AppError(
         429,
         'TOO_MANY_ACTIVE',

@@ -163,6 +163,18 @@ describe('CVs before generation', () => {
       expect(await db.select().from(generationJobs)).toHaveLength(limit)
     })
 
+    it('lets only as many starts at the same moment through as CVs may be in progress', async () => {
+      const { cookie } = await signUp(app.server())
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () => as(cookie).post('/api/cvs').send(newCvBody())),
+      )
+      const limit = TEST_LIMITS.activePerUser
+      expect(responses.filter((response) => response.status === 202)).toHaveLength(limit)
+      for (const response of responses.filter((response) => response.status !== 202))
+        expectError(response, 429, 'TOO_MANY_ACTIVE')
+      expect(await db.select().from(cvs)).toHaveLength(limit)
+    })
+
     it('answers 202 within the enqueue timeout when Redis is down; the job row stays for recovery', async () => {
       // nothing listens on port 1: every Redis command waits for a reconnect that never comes
       const noRedis = await createTestApp({ REDIS_URL: 'redis://127.0.0.1:1' })

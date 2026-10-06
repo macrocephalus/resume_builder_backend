@@ -125,6 +125,16 @@ describe('usage and the hourly generation limit', () => {
     expect(row?.status).toBe('failed')
   })
 
+  it('lets one of several starts at the same moment take the last generation of the hour', async () => {
+    const { cookie } = await signUp(app.server())
+    await startFinished(cookie, TEST_LIMITS.perHour - 1)
+    const responses = await Promise.all(Array.from({ length: 6 }, () => create(cookie)))
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      202, 429, 429, 429, 429, 429,
+    ])
+    expect(await db.select().from(generationJobs)).toHaveLength(TEST_LIMITS.perHour)
+  })
+
   it('checks the hourly limit before the active one', async () => {
     const { cookie } = await signUp(app.server())
     await startFinished(cookie, TEST_LIMITS.perHour - TEST_LIMITS.activePerUser)
