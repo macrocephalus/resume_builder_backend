@@ -86,7 +86,9 @@ backend/
 │   ├── cvs/
 │   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, pdf, delete, retry
 │   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV; lockOwned in a
-│   │   │                          transaction that writes from what it read
+│   │   │                          transaction that writes from what it read; create from text
+│   │   │                          or fromCvId (the parent locked, with a draft: its source and
+│   │   │                          facts are copied, parent_cv_id set)
 │   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS);
 │   │   │                          readyIfNoneOpen after an answer, a skip or an edit
 │   │   ├── from-statuses.ts       pure: the statuses a move to X is allowed from
