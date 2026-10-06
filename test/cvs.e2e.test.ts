@@ -211,6 +211,19 @@ describe('CVs before generation', () => {
       expect((await statuses(bob.cookie, [second.id]))[0]?.queuePosition).toBe(1)
       expect((await statuses(ann.cookie, [third.id]))[0]?.queuePosition).toBe(2)
     })
+
+    it('puts a retried CV behind the ones queued before the retry', async () => {
+      const ann = await signUp(app.server(), 'ann@example.com')
+      const bob = await signUp(app.server(), 'bob@example.com')
+      const older = await createCv(app.server(), ann.cookie)
+      const newer = await createCv(app.server(), bob.cookie)
+      await db.update(cvs).set({ status: 'failed' }).where(eq(cvs.id, older.id))
+
+      const retried = await as(ann.cookie).post(`/api/cvs/${older.id}/retry`)
+      expect(retried.status).toBe(202)
+      expect(cvResponseSchema.parse(retried.body).cv.queuePosition).toBe(2)
+      expect((await statuses(bob.cookie, [newer.id]))[0]?.queuePosition).toBe(1)
+    })
   })
 
   describe('GET /api/cvs', () => {

@@ -98,7 +98,7 @@ backend/
 │   │   ├── from-statuses.ts       pure: the statuses a move to X is allowed from
 │   │   ├── cv.mapper.ts           row → Cv / CvSummary / CvStatusInfo (computeMatch); a draft
 │   │   │                          that fails CvData → 500 DATA_CORRUPT
-│   │   ├── queue-position.ts      1 + queued CVs of all users created earlier (row_number)
+│   │   ├── queue-position.ts      1 + queued CVs of all users whose latest job is older (row_number)
 │   │   └── patch-cv.ts            pure: dropEmptyItems, questions about removed items → skipped
 │   ├── limits/
 │   │   ├── limits.service.ts      generations/hour (generation_jobs) → 429 RATE_LIMITED, then
@@ -250,8 +250,8 @@ Automatic retries are BullMQ's own (`attempts: 3`, exponential backoff from 5 s)
 
 **app_secrets** — `name text pk`, `value text`. Holds the JWT secret (§6).
 
-Every foreign key has an index; `generation_jobs (user_id, created_at)` serves the hourly count and
-`cvs (status, created_at)` the queue position and the recovery.
+Every foreign key has an index; `generation_jobs (user_id, created_at)` serves the hourly count,
+`cvs (status, created_at)` the recovery and, with `generation_jobs (cv_id)`, the queue position.
 
 No `cv_sources` table and no job-level status: [adr/0002](adr/0002-one-cv-status-no-source-table.md).
 
