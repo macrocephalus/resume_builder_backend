@@ -16,8 +16,9 @@ Related documents, none of which this file repeats:
 | Short rules an agent must not break | [../CLAUDE.md](../CLAUDE.md) |
 
 Status: settled in the server grilling (2026-10-06, `.scratch/server/decisions.md`) and built
-ticket by ticket (`.scratch/server/issues/`). The skeleton of §1, §2, the error shape and auth
-(§6, first two bullets) exist; the files of later tickets are listed here as the plan.
+ticket by ticket (`.scratch/server/issues/`). The skeleton of §1, §2, the error shape, auth
+(§6, first two bullets) and PDF intake exist; the files of later tickets are listed here as the
+plan.
 
 ## 1. Processes and the tree
 
@@ -60,7 +61,7 @@ backend/
 │   │   ├── errors/                app-error.ts (status, code from @cv/shared, details)
 │   │   ├── http/                  error.filter.ts ({ error: { code, message, details } }),
 │   │   │                          zod-validation.pipe.ts (schemas from @cv/shared),
-│   │   │                          rate-limit.ts (@RateLimit: throttler → 429 RATE_LIMITED),
+│   │   │                          rate-limit.ts (@RateLimit per IP or user → 429 RATE_LIMITED),
 │   │   │                          trust-proxy.ts (one private hop: the client IP nginx saw)
 │   │   ├── auth/                  public.decorator.ts (@Public), current-user.decorator.ts
 │   │   │                          (@CurrentUser: the id the guard verified)
@@ -77,8 +78,9 @@ backend/
 │   │   ├── password.ts            argon2id
 │   │   └── session-cookie.ts      name, httpOnly, SameSite=Lax, 7 days
 │   ├── ingest/
-│   │   ├── ingest.controller.ts   POST /api/ingest/pdf, ≤ 5 MB, throttled 20/min
-│   │   └── pdf-text.ts            magic bytes, unpdf, ≤ 10 pages, ≥ 50 chars
+│   │   ├── ingest.controller.ts   POST /api/ingest/pdf: multer in memory, ≤ 5 MB, 20/min per user
+│   │   ├── ingest.service.ts      result → 415 / 413 / 422 or { text, pages, chars, filename }
+│   │   └── pdf-text.ts            pure: magic bytes, unpdf, ≤ 10 pages, ≥ 50 chars
 │   ├── cvs/
 │   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, delete, retry
 │   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV
@@ -367,10 +369,17 @@ processor throw BullMQ's `UnrecoverableError`.
 - Limits (config): 10 generations/user/hour, ≤ 2 in progress per user, ingest 20/min → `429` +
   `Retry-After`. The generation limit counts `generation_jobs` rows of the last 60 minutes — what
   the user started (a CV created, a manual Retry), not automatic retries of an attempt; deleting a
-  CV keeps its jobs, so it doesn't free the limit. `@nestjs/throttler` for login and ingest.
+  CV keeps its jobs, so it doesn't free the limit. `@nestjs/throttler` for login (per IP) and
+  ingest (per user: the id the auth guard verified, so one IP can hold many users).
+- Intake takes one multipart part, `file`, ≤ 5 MB; another field or file is `400`, a missing file
+  is `400 VALIDATION_ERROR` with `details.fields.file`. The file stays in memory (multer without
+  storage) and pdf.js reads only its text layer; the minimum of 50 characters counts visible
+  ones, so a scan with stray whitespace still gets `422`.
 - Known simplifications (README): JWT can't be revoked before expiry; signup reveals that an email
   is taken; count-then-insert race on limits is accepted; answers have no hourly limit (with the
-  AnswerAgent cut, an answer makes no model call).
+  AnswerAgent cut, an answer makes no model call); pdf.js parses an upload on the api's event
+  loop, so a crafted 5 MB PDF can slow other requests for a moment (bounded by the size, page
+  and per-user limits; a worker thread would remove it).
 
 ## 6a. Logs
 
