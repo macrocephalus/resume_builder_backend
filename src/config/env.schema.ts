@@ -25,7 +25,14 @@ export const envSchema = z.object({
   /** Overrides the secret kept in `app_secrets`; generated on first start when absent. */
   JWT_SECRET: z.string().min(32).optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('info'),
+  LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /**
+   * Logs what the user wrote and the model answered (a CV's source, answers, the prompt, the
+   * submissions) under `content`, at debug. Personal data: for development only, off by default.
+   */
+  LOG_CONTENT: z.stringbool().default(false),
+  /** Human-readable lines through pino-pretty, a dev dependency: not in the docker image. */
+  LOG_PRETTY: z.stringbool().default(false),
   /** Serves the OpenAPI document and the Swagger UI at `/api/docs`; off unless asked for. */
   API_DOCS: z.stringbool().default(false),
 })

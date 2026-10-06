@@ -3,6 +3,7 @@ import type { ErrorCode, ErrorResponse } from '@cv/shared'
 import type { Response } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../errors/app-error'
+import { ANSWERED_ERROR_CODE } from '../logging/logger-options'
 import { safeError } from '../logging/safe-error'
 
 type ErrorReply = { status: number; body: ErrorResponse; headers?: Record<string, string> }
@@ -70,6 +71,8 @@ export class AppExceptionFilter implements ExceptionFilter {
     // a 500 answered on purpose (DATA_CORRUPT) is still a fault on our side
     else if (known.status === 500) this.logger.error({ err: exception }, known.body.error.code)
     const { status, body, headers = {} } = known ?? INTERNAL
+    // the request's own line (warn for a 4xx, error for a 5xx) says which error it answered
+    response.locals[ANSWERED_ERROR_CODE] = body.error.code
     response.set(headers).status(status).json(body)
   }
 }

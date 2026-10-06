@@ -14,6 +14,8 @@ x-backend: &backend
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in the root .env}
     # the Swagger UI at /api/docs; off in an image unless the root .env turns it on
     API_DOCS: ${API_DOCS:-false}
+    # JSON lines; content (LOG_CONTENT) and pino-pretty are for `pnpm dev` on the host only
+    LOG_LEVEL: ${LOG_LEVEL:-info}
     TZ: UTC
   restart: unless-stopped
 

@@ -22,6 +22,8 @@ All from `backend/`, Node through nvm (root `CLAUDE.md`, "Environment"):
   `ANTHROPIC_API_KEY` is required, `DATABASE_URL` / `REDIS_URL` default to the project's host
   ports (root `.env.example` lists the optional overrides). `pnpm dev` also serves the Swagger
   UI at `localhost:3000/api/docs` (`API_DOCS=true`); it is off everywhere else unless turned on.
+  Both log at `debug`, with content, in pino-pretty lines (`LOG_LEVEL=debug LOG_CONTENT=true
+  LOG_PRETTY=true`, architecture §6a).
 - Checks before a commit: `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build`.
 - `pnpm test:e2e` — against the same compose Postgres and Redis; set `DATABASE_URL` / `REDIS_URL`
   only if you changed the ports. Uses the `cv_test` database only.
@@ -70,8 +72,10 @@ neither covers a case, follow the established NestJS / Node practice and say why
 - Configuration is read once by `parseEnv` and injected through the `ENV` token; nothing else reads
   `process.env`. Limits and timeouts live in `config/limits.ts`, not as literals in services.
 - Logging goes through `PinoLogger` with structured fields (`{ cvId, jobId, err }`), never
-  `console` (except in `run.ts` before the logger exists) and never source text, answers,
-  passwords or the cookie.
+  `console` (except in `run.ts` before the logger exists), at the level architecture §6a gives
+  the kind of event. What the user wrote or the model answered (source text, answers, an email,
+  the prompt, a submission) goes only under the line's `content` key (`CONTENT`), which is
+  redacted unless `LOG_CONTENT` is on; passwords, tokens and the cookie are never logged.
 - Every promise is awaited or explicitly handed off; long work belongs to the worker, not to a
   request. Resources a module opens (pools, connections, queues) are closed in its
   `onApplicationShutdown`.

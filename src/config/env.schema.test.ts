@@ -14,7 +14,7 @@ describe('parseEnv', () => {
     expect(env.REDIS_URL).toBe('redis://127.0.0.1:56379')
   })
 
-  it('fills the defaults: queue prefix, model, concurrency, port, log level, no JWT secret, no API docs', () => {
+  it('fills the defaults: queue prefix, model, concurrency, port, plain info logs, no JWT secret, no API docs', () => {
     expect(parseEnv(complete)).toEqual({
       DATABASE_URL: 'postgres://cv:cv@postgres:5432/cv',
       REDIS_URL: 'redis://redis:6379',
@@ -24,6 +24,8 @@ describe('parseEnv', () => {
       WORKER_CONCURRENCY: 8,
       PORT: 3000,
       LOG_LEVEL: 'info',
+      LOG_CONTENT: false,
+      LOG_PRETTY: false,
       JWT_SECRET: undefined,
       API_DOCS: false,
     })
@@ -33,6 +35,17 @@ describe('parseEnv', () => {
     expect(parseEnv({ ...complete, API_DOCS: 'true' }).API_DOCS).toBe(true)
     expect(parseEnv({ ...complete, API_DOCS: 'false' }).API_DOCS).toBe(false)
     expect(() => parseEnv({ ...complete, API_DOCS: 'maybe' })).toThrow(/API_DOCS/)
+  })
+
+  it('logs content and pretty lines only when asked', () => {
+    const env = parseEnv({
+      ...complete,
+      LOG_CONTENT: 'true',
+      LOG_PRETTY: 'true',
+      LOG_LEVEL: 'trace',
+    })
+    expect(env).toMatchObject({ LOG_CONTENT: true, LOG_PRETTY: true, LOG_LEVEL: 'trace' })
+    expect(() => parseEnv({ ...complete, LOG_CONTENT: 'yes please' })).toThrow(/LOG_CONTENT/)
   })
 
   it('reads numbers from strings and keeps the overrides', () => {
