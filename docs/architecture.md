@@ -87,7 +87,8 @@ backend/
 │   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, delete, retry
 │   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV; lockOwned in a
 │   │   │                          transaction that writes from what it read
-│   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS)
+│   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS);
+│   │   │                          readyIfNoneOpen after an answer, a skip or an edit
 │   │   ├── from-statuses.ts       pure: the statuses a move to X is allowed from
 │   │   ├── cv.mapper.ts           row → Cv / CvSummary / CvStatusInfo (computeMatch); a draft
 │   │   │                          that fails CvData → 500 DATA_CORRUPT
