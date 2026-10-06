@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { GENERATION } from '../src/config/limits'
+import { TEST_LIMITS } from './helpers/env'
 import { DATABASE, type Database } from '../src/database/database.module'
 import { cvQuestions, cvs, generationJobs } from '../src/database/schema'
 import { GENERATION_QUEUE } from '../src/generation/generation.queue'
@@ -163,7 +163,7 @@ describe('CVs before generation', () => {
 
     it('refuses one CV in progress over the limit with 429 TOO_MANY_ACTIVE and writes nothing', async () => {
       const { cookie } = await signUp(app.server())
-      const limit = GENERATION.activePerUser
+      const limit = TEST_LIMITS.activePerUser
       for (let i = 0; i < limit; i++) await createCv(app.server(), cookie)
 
       const response = await as(cookie).post('/api/cvs').send(newCvBody())

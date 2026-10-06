@@ -5,7 +5,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../errors/app-error'
 import { safeError } from '../logging/safe-error'
 
-type ErrorReply = { status: number; body: ErrorResponse }
+type ErrorReply = { status: number; body: ErrorResponse; headers?: Record<string, string> }
 
 /** Codes for the errors Nest raises itself (unknown route, guard, throttler, …). */
 const CODE_BY_STATUS: Record<number, ErrorCode> = {
@@ -40,7 +40,10 @@ const expressClientError = (exception: unknown): number | null => {
 
 export const toReply = (exception: unknown): ErrorReply | null => {
   if (exception instanceof AppError) {
-    return reply(exception.status, exception.code, exception.message, exception.details)
+    return {
+      ...reply(exception.status, exception.code, exception.message, exception.details),
+      headers: exception.headers,
+    }
   }
   if (exception instanceof HttpException) {
     const status = exception.getStatus()
@@ -66,7 +69,7 @@ export class AppExceptionFilter implements ExceptionFilter {
     if (!known) this.logger.error({ err: safeError(exception) }, 'unhandled error')
     // a 500 answered on purpose (DATA_CORRUPT) is still a fault on our side
     else if (known.status === 500) this.logger.error({ err: exception }, known.body.error.code)
-    const { status, body } = known ?? INTERNAL
-    response.status(status).json(body)
+    const { status, body, headers = {} } = known ?? INTERNAL
+    response.set(headers).status(status).json(body)
   }
 }

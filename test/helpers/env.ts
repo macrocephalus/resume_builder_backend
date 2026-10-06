@@ -5,6 +5,10 @@ import {
   parseEnv,
 } from '../../src/config/env.schema'
 import {
+  GENERATION_LIMITS_DEFAULTS,
+  type GenerationLimits,
+} from '../../src/limits/generation-limits'
+import {
   GENERATION_TIMING_DEFAULTS,
   type GenerationTiming,
 } from '../../src/generation/generation.queue'
@@ -43,3 +47,10 @@ export const testEnv = (): Env =>
  * and short enough to run three attempts in about a second; the rest as in production.
  */
 export const TEST_TIMING: GenerationTiming = { ...GENERATION_TIMING_DEFAULTS, backoffMs: 300 }
+
+/** Small limits, so a test reaches them in a few requests. */
+export const TEST_LIMITS: GenerationLimits = {
+  ...GENERATION_LIMITS_DEFAULTS,
+  perHour: 5,
+  activePerUser: 2,
+}

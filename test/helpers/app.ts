@@ -5,8 +5,9 @@ import type { App } from 'supertest/types'
 import { AppModule } from '../../src/app.module'
 import type { Env } from '../../src/config/env.schema'
 import { GENERATION_TIMING } from '../../src/generation/generation.queue'
+import { GENERATION_LIMITS } from '../../src/limits/generation-limits'
 import { setupApp } from '../../src/setup-app'
-import { TEST_TIMING, testEnv } from './env'
+import { TEST_LIMITS, TEST_TIMING, testEnv } from './env'
 
 export type TestApp = {
   app: INestApplication
@@ -17,7 +18,7 @@ export type TestApp = {
 
 /**
  * The api as `main.ts` builds it, on the test database, listening on no port, with the tests'
- * generation timing. `overrides` replaces parts of the test env, e.g. `JWT_SECRET`.
+ * generation timing and small limits. `overrides` replaces parts of the test env, e.g. `JWT_SECRET`.
  */
 export const createTestApp = async (overrides: Partial<Env> = {}): Promise<TestApp> => {
   const moduleRef = await Test.createTestingModule({
@@ -25,6 +26,8 @@ export const createTestApp = async (overrides: Partial<Env> = {}): Promise<TestA
   })
     .overrideProvider(GENERATION_TIMING)
     .useValue(TEST_TIMING)
+    .overrideProvider(GENERATION_LIMITS)
+    .useValue(TEST_LIMITS)
     .compile()
   const app = moduleRef.createNestApplication<NestExpressApplication>()
   setupApp(app)

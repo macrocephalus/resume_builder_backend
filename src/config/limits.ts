@@ -1,6 +1,6 @@
 /**
- * The numbers the server is tuned by, in one place: timeouts, generation, the session, throttles
- * and the questions of a draft now; generations per hour as its ticket lands.
+ * The numbers the server is tuned by, in one place: timeouts, generation and its limits, the
+ * session, throttles and the questions of a draft.
  */
 export const TIMEOUTS = {
   /** A Postgres connection that cannot be made fails fast, so `/api/health` answers 503. */
@@ -15,6 +15,13 @@ export const TIMEOUTS = {
 } as const
 
 export const GENERATION = {
+  /**
+   * Generations one user may start (a CV created or a manual Retry) in any `windowMs`; the next is
+   * 429 RATE_LIMITED. Automatic attempts don't count, and deleting a CV gives nothing back.
+   */
+  perHour: 10,
+  /** The sliding window of `perHour`. */
+  windowMs: 3_600_000,
   /** CVs of one user in queued / generating / retrying at once; another one is 429. */
   activePerUser: 4,
   /** Attempts of one generation job (BullMQ `attempts`, `cvs.max_attempts`). */

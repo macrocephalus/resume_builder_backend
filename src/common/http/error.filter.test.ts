@@ -16,7 +16,19 @@ describe('toReply', () => {
           details: { currentVersion: 4 },
         },
       },
+      headers: {},
     })
+  })
+
+  it('carries the headers of an AppError, such as Retry-After', () => {
+    const error = new AppError(
+      429,
+      'RATE_LIMITED',
+      'Later.',
+      { limit: 10 },
+      { 'Retry-After': '60' },
+    )
+    expect(toReply(error)?.headers).toEqual({ 'Retry-After': '60' })
   })
 
   it("maps Nest's own exceptions by status when the contract has a code for it", () => {

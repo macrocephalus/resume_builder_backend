@@ -10,6 +10,8 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly details: Record<string, unknown> = {},
+    /** Response headers that go with it, e.g. `Retry-After`. */
+    readonly headers: Record<string, string> = {},
   ) {
     super(message)
     this.name = 'AppError'
