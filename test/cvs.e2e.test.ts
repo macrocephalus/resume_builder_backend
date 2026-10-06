@@ -322,7 +322,13 @@ describe('CVs before generation', () => {
       const bob = await signUp(app.server(), 'bob@example.com')
       // a userId in the body is ignored: the CV is Ann's
       const cv = await createCv(app.server(), ann.cookie, { userId: bob.id })
-      const questionId = randomUUID()
+      // Ann's CV waits for an answer to a real question, so only the owner check can refuse Bob
+      await db.update(cvs).set({ status: 'needs_input' }).where(eq(cvs.id, cv.id))
+      const [question] = await db
+        .insert(cvQuestions)
+        .values(questionRow(cv.id, 1))
+        .returning({ id: cvQuestions.id })
+      const questionId = question?.id
       const bobs = as(bob.cookie)
 
       const routes = [
@@ -346,7 +352,9 @@ describe('CVs before generation', () => {
       // and it is all still there for Ann
       const own = await as(ann.cookie).get(`/api/cvs/${cv.id}`)
       expect(own.status).toBe(200)
-      expect(cvResponseSchema.parse(own.body).cv.title).toBe(cv.title)
+      const { cv: owned } = cvResponseSchema.parse(own.body)
+      expect(owned.title).toBe(cv.title)
+      expect(owned.questions.map((q) => q.status)).toEqual(['open'])
     })
   })
 })

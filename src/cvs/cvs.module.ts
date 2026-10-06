@@ -10,7 +10,7 @@ import { CvsService } from './cvs.service'
   imports: [GenerationQueueModule, LimitsModule],
   controllers: [CvsController],
   providers: [CvsService, CvStatusService],
-  // the generation processor loads its CV and moves its status
+  // the generation processor and the questions load a CV and move its status
   exports: [CvsService, CvStatusService],
 })
 export class CvsModule {}

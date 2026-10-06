@@ -12,7 +12,7 @@ import { and, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
 import { GENERATION } from '../config/limits'
-import { DATABASE, type Database } from '../database/database.module'
+import { DATABASE, type Database, type Executor } from '../database/database.module'
 import { cvQuestions, cvs, generationJobs } from '../database/schema'
 import { GenerationProducer } from '../generation/generation.producer'
 import { LimitsService } from '../limits/limits.service'
@@ -47,11 +47,17 @@ export class CvsService {
    * a UUID, which can't exist).
    */
   async getOwned(id: string, userId: string): Promise<CvRow> {
-    if (!uuid.safeParse(id).success) throw notFound()
-    const [row] = await this.db
-      .select()
-      .from(cvs)
-      .where(and(eq(cvs.id, id), eq(cvs.userId, userId)))
+    const [row] = await this.ownedRow(id, userId, this.db)
+    if (!row) throw notFound()
+    return row
+  }
+
+  /**
+   * `getOwned` inside the caller's transaction, the row locked until it ends, so two writes
+   * that each start from what they read (two answers at once) run one after the other.
+   */
+  async lockOwned(id: string, userId: string, tx: Executor): Promise<CvRow> {
+    const [row] = await this.ownedRow(id, userId, tx).for('update')
     if (!row) throw notFound()
     return row
   }
@@ -169,6 +175,15 @@ export class CvsService {
       .innerJoin(generationJobs, eq(generationJobs.cvId, cvs.id))
       .where(inArray(cvs.status, IN_PROGRESS))
       .orderBy(cvs.id, desc(generationJobs.createdAt))
+  }
+
+  /** The query for the CV `userId` owns with this id; `404` for an id that is not a UUID. */
+  private ownedRow(id: string, userId: string, executor: Executor) {
+    if (!uuid.safeParse(id).success) throw notFound()
+    return executor
+      .select()
+      .from(cvs)
+      .where(and(eq(cvs.id, id), eq(cvs.userId, userId)))
   }
 
   private async queuePositionOf(row: CvRow): Promise<number | null> {

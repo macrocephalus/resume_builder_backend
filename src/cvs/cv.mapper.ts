@@ -18,7 +18,7 @@ export type QuestionRow = typeof cvQuestions.$inferSelect
  * The stored draft, checked against the schema before anyone sees it: a row that doesn't match
  * is `500 DATA_CORRUPT` (logged by the error filter), never a broken editor or PDF.
  */
-const draftOf = (row: CvRow): CvData | null => {
+export const draftOf = (row: CvRow): CvData | null => {
   if (row.data === null) return null
   const parsed = cvDataSchema.safeParse(row.data)
   if (!parsed.success) {
@@ -29,7 +29,7 @@ const draftOf = (row: CvRow): CvData | null => {
   return parsed.data
 }
 
-const toQuestion = (row: QuestionRow): Question => ({
+export const toQuestion = (row: QuestionRow): Question => ({
   id: row.id,
   kind: row.kind,
   origin: row.origin,

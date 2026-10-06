@@ -11,6 +11,7 @@ import { CvsModule } from './cvs/cvs.module'
 import { DatabaseModule } from './database/database.module'
 import { HealthModule } from './health/health.module'
 import { IngestModule } from './ingest/ingest.module'
+import { QuestionsModule } from './questions/questions.module'
 import { RedisModule } from './redis/redis.module'
 
 /** Everything HTTP. `main.ts` and the e2e tests build it with their own parsed `Env`. */
@@ -31,6 +32,7 @@ export class AppModule {
         AuthModule,
         IngestModule,
         CvsModule,
+        QuestionsModule,
       ],
       providers: [{ provide: APP_FILTER, useClass: AppExceptionFilter }],
     }
