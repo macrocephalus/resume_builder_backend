@@ -28,6 +28,12 @@ import { queuePositions } from './queue-position'
 
 const uuid = z.uuid()
 
+/** The columns of a new CV that say what it is generated from. */
+type CvSource = Pick<
+  typeof cvs.$inferInsert,
+  'parentCvId' | 'sourceType' | 'sourceFilename' | 'sourceText' | 'facts'
+>
+
 /** A CV's PDF and the title its file is named after. */
 export type CvPdf = { pdf: Buffer; title: string }
 
@@ -45,6 +51,9 @@ const notEditable = () =>
 /** The editor opened an older version (another tab saved since): "reload latest". */
 const versionConflict = (currentVersion: number) =>
   new AppError(409, 'VERSION_CONFLICT', 'The CV was changed elsewhere.', { currentVersion })
+
+const noParentDraft = () =>
+  new AppError(409, 'INVALID_STATE', 'A CV for another role needs a CV with a finished draft.')
 
 const noDraftYet = () => new AppError(409, 'INVALID_STATE', 'This CV has no draft to download yet.')
 
@@ -86,13 +95,8 @@ export class CvsService {
    * the job goes on the queue. Answers at once: the generation runs in the worker.
    */
   async create(userId: string, body: CreateCvBody): Promise<Cv> {
-    if (body.fromCvId !== undefined || body.sourceText === undefined) {
-      throw new AppError(400, 'VALIDATION_ERROR', 'The request is invalid.', {
-        fields: { fromCvId: 'Creating a CV for another role is not available yet' },
-      })
-    }
-    const { sourceText } = body
     const { row, jobId } = await this.db.transaction(async (tx) => {
+      const source = await this.sourceOf(userId, body, tx)
       await this.limits.assertCanStart(userId, tx)
       const [created] = await tx
         .insert(cvs)
@@ -102,9 +106,7 @@ export class CvsService {
           targetRole: body.targetRole,
           roleContext: body.roleContext ?? null,
           language: body.language,
-          sourceType: body.sourceType,
-          sourceFilename: body.sourceFilename ?? null,
-          sourceText,
+          ...source,
           status: 'queued',
           attempt: 1,
           maxAttempts: GENERATION.attempts,
@@ -242,6 +244,33 @@ export class CvsService {
       .innerJoin(generationJobs, eq(generationJobs.cvId, cvs.id))
       .where(inArray(cvs.status, IN_PROGRESS))
       .orderBy(cvs.id, desc(generationJobs.createdAt))
+  }
+
+  /**
+   * What a new CV is generated from: the text of the body, or, for another role (`fromCvId`), the
+   * source and the facts of the user's CV with a draft. That CV stays locked until the new one
+   * points to it, so it can't be deleted in between.
+   */
+  private async sourceOf(userId: string, body: CreateCvBody, tx: Executor): Promise<CvSource> {
+    if (body.fromCvId === undefined) {
+      if (body.sourceText === undefined) {
+        throw new Error('createCvBodySchema lets a body through with neither source')
+      }
+      return {
+        sourceType: body.sourceType,
+        sourceFilename: body.sourceFilename ?? null,
+        sourceText: body.sourceText,
+      }
+    }
+    const parent = await this.lockOwned(body.fromCvId, userId, tx)
+    if (!hasDraft(parent.status)) throw noParentDraft()
+    return {
+      parentCvId: parent.id,
+      sourceType: parent.sourceType,
+      sourceFilename: parent.sourceFilename,
+      sourceText: parent.sourceText,
+      facts: parent.facts,
+    }
   }
 
   private openQuestionsOf(cvId: string, executor: Executor) {

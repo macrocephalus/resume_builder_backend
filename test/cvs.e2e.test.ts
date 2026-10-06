@@ -151,16 +151,6 @@ describe('CVs before generation', () => {
       expect(await db.select().from(cvs)).toEqual([])
     })
 
-    it('refuses fromCvId with 400 for now', async () => {
-      const { cookie } = await signUp(app.server())
-      const parent = await createCv(app.server(), cookie)
-      const response = await as(cookie)
-        .post('/api/cvs')
-        .send({ targetRole: 'Node.js Tech Lead', fromCvId: parent.id })
-      expectError(response, 400, 'VALIDATION_ERROR')
-      expect(fieldsOf(response)).toEqual(['fromCvId'])
-    })
-
     it('refuses one CV in progress over the limit with 429 TOO_MANY_ACTIVE and writes nothing', async () => {
       const { cookie } = await signUp(app.server())
       const limit = TEST_LIMITS.activePerUser
