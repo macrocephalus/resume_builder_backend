@@ -16,8 +16,8 @@ Related documents, none of which this file repeats:
 | Short rules an agent must not break | [../CLAUDE.md](../CLAUDE.md) |
 
 Status: settled in the server grilling (2026-10-06, `.scratch/server/decisions.md`) and built
-ticket by ticket (`.scratch/server/issues/`). The skeleton of §1, §2 and the error shape exist;
-the files of later tickets are listed here as the plan.
+ticket by ticket (`.scratch/server/issues/`). The skeleton of §1, §2, the error shape and auth
+(§6, first two bullets) exist; the files of later tickets are listed here as the plan.
 
 ## 1. Processes and the tree
 
@@ -47,7 +47,7 @@ backend/
 │   ├── worker.module.ts     config, logger, database, redis, cvs (services only), generation, agents
 │   ├── config/
 │   │   ├── env.schema.ts          Zod; parseEnv — a bad env stops the process with the variable's name
-│   │   ├── limits.ts              generations/hour, active, ingest/min, timeouts, caps
+│   │   ├── limits.ts              timeouts, session, throttles; generations/hour, active, caps
 │   │   └── config.module.ts       ConfigModule.forRoot(env): the ENV token (global)
 │   ├── database/
 │   │   ├── schema/                users, cvs, cv-questions, generation-jobs,
@@ -59,16 +59,21 @@ backend/
 │   ├── common/
 │   │   ├── errors/                app-error.ts (status, code from @cv/shared, details)
 │   │   ├── http/                  error.filter.ts ({ error: { code, message, details } }),
-│   │   │                          zod-validation.pipe.ts (schemas from @cv/shared)
-│   │   ├── auth/                  jwt-auth.guard.ts (global; verify, never decode),
-│   │   │                          public.decorator.ts, current-user.decorator.ts
+│   │   │                          zod-validation.pipe.ts (schemas from @cv/shared),
+│   │   │                          rate-limit.ts (@RateLimit: throttler → 429 RATE_LIMITED),
+│   │   │                          trust-proxy.ts (one private hop: the client IP nginx saw)
+│   │   ├── auth/                  public.decorator.ts (@Public), current-user.decorator.ts
+│   │   │                          (@CurrentUser: the id the guard verified)
 │   │   └── logging/               logger.module.ts (nestjs-pino, JSON to stdout, request id, redact)
 │   ├── health/                    health.controller.ts — GET /api/health (SELECT 1 → 200; else 503,
 │   │                              code INTERNAL — the only non-500 use of that code)
 │   ├── auth/
 │   │   ├── auth.controller.ts     signup, login (throttled), logout, me
-│   │   ├── auth.service.ts
+│   │   ├── auth.service.ts        signup, login (same cost for an unknown email), me
+│   │   ├── auth-errors.ts         401 UNAUTHORIZED / INVALID_CREDENTIALS
+│   │   ├── jwt-auth.guard.ts      global (APP_GUARD): verify, never decode; skips @Public
 │   │   ├── jwt-secret.service.ts  app_secrets: insert … on conflict do nothing, then read
+│   │   ├── session.service.ts     issue / verify the JWT (HS256, 7 days)
 │   │   ├── password.ts            argon2id
 │   │   └── session-cookie.ts      name, httpOnly, SameSite=Lax, 7 days
 │   ├── ingest/
@@ -346,8 +351,17 @@ processor throw BullMQ's `UnrecoverableError`.
 - The signing secret is generated on the first api start and kept in `app_secrets`
   (`insert … on conflict do nothing`, then read), so the only secret in `.env` stays
   `ANTHROPIC_API_KEY` and sessions survive a restart. `JWT_SECRET` in the env overrides it.
-- `JwtAuthGuard` on everything except signup/login; `userId` only from the verified token
-  (`verify`, never `decode`). DTOs are Zod-parsed — unknown keys (e.g. `userId`) are stripped.
+- `JwtAuthGuard` is global; `@Public()` opens signup, login, logout and health. `userId` only
+  from the verified token (`verify`, never `decode`), handed to handlers by `@CurrentUser()`.
+  The guard lives in `auth/` (it needs the session service); the two decorators live in
+  `common/auth/`, so feature modules never import `auth`. DTOs are Zod-parsed — unknown keys
+  (e.g. `userId`) are stripped.
+- `trust proxy` believes one hop: the direct peer, when it is on a loopback or private network
+  (the web container's nginx). nginx appends the address it saw to `X-Forwarded-For`, and only
+  that last entry counts, so the login throttle is per client and can't be reset by a forged
+  header; `X-Forwarded-Proto` makes the cookie `Secure` behind HTTPS. A client that reaches port
+  3000 directly from such a network can still set both headers; in the stack users come through
+  the web container.
 - Every CV query filters by `user_id`; foreign CV ⇒ `404`, not `403`. The worker takes `user_id`
   from the job row.
 - Limits (config): 10 generations/user/hour, ≤ 2 in progress per user, ingest 20/min → `429` +
