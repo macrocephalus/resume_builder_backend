@@ -2,7 +2,7 @@
 
 **Blocked by:** 05 (generation happy path)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Spec:** [../spec.md](../spec.md) · design: `backend/docs/architecture.md` §5, ADR 0001
 

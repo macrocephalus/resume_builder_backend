@@ -2,7 +2,7 @@
 
 **Blocked by:** 02 (auth)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Spec:** [../spec.md](../spec.md)
 

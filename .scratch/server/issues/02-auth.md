@@ -2,7 +2,7 @@
 
 **Blocked by:** 01 (scaffold)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Spec:** [../spec.md](../spec.md)
 

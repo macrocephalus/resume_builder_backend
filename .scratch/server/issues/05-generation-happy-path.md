@@ -2,7 +2,7 @@
 
 **Blocked by:** 04 (CVs without generation)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Spec:** [../spec.md](../spec.md) · design: `backend/docs/architecture.md` §3, ADR 0003
 

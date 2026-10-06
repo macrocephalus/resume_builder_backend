@@ -2,7 +2,7 @@
 
 **Blocked by:** 04 (CVs without generation); root `.scratch/server-contract/issues/01-apply-answer-and-limits.md` (`Usage` without `answers`)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Spec:** [../spec.md](../spec.md)
 

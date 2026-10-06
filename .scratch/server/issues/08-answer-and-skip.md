@@ -2,7 +2,7 @@
 
 **Blocked by:** 05 (generation happy path); root `.scratch/server-contract/issues/01-apply-answer-and-limits.md` (shared `applyAnswer`)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Spec:** [../spec.md](../spec.md)
 
