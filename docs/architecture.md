@@ -43,7 +43,9 @@ backend/
 ├── src/
 │   ├── main.ts              api: parseEnv → NestFactory → setupApp → runMigrations → listen
 │   ├── worker.ts            worker: parseEnv → createApplicationContext(WorkerModule) → ping Redis
-│   ├── setup-app.ts         /api prefix, cookie-parser, pino as the Nest logger, shutdown hooks
+│   ├── setup-app.ts         /api prefix, cookie-parser, pino as the Nest logger, shutdown hooks;
+│   │                        the API docs when API_DOCS is on
+│   ├── api-docs.ts          Swagger UI at /api/docs, OpenAPI at /api/docs-json (§6b)
 │   ├── app.module.ts        everything HTTP: AppModule.forRoot(env); the global error filter
 │   ├── worker.module.ts     config, logger, database, redis, cvs (services only), generation, agents
 │   ├── config/
@@ -67,6 +69,8 @@ backend/
 │   │   │                          trust-proxy.ts (one private hop: the client IP nginx saw)
 │   │   ├── auth/                  public.decorator.ts (@Public), current-user.decorator.ts
 │   │   │                          (@CurrentUser: the id the guard verified)
+│   │   ├── openapi/               api-docs.decorators.ts: @ApiErrors(codes), @ApiSession,
+│   │   │                          @ApiZodBody(schema from @cv/shared)
 │   │   └── logging/               logger.module.ts (nestjs-pino, JSON to stdout, request id, redact)
 │   ├── health/                    health.controller.ts — GET /api/health (SELECT 1 → 200; else 503,
 │   │                              code INTERNAL — the only non-500 use of that code)
@@ -463,6 +467,17 @@ pino (`nestjs-pino`) to stdout as JSON, level from `LOG_LEVEL` (default `info`; 
 returned in the response), userId, cvId, jobId where known; LLM errors are logged in full. The
 docker healthcheck's `GET /api/health` gets no request line. Never logged: `source_text`, answers,
 passwords, the cookie and authorization headers (redacted).
+
+## 6b. API docs (development only)
+
+The controllers describe their routes with `@nestjs/swagger` decorators (`@ApiOperation`,
+`@ApiOkResponse`, …); the bodies and responses in them are the `@cv/shared` Zod schemas, never DTO
+classes that repeat them ([adr/0007](adr/0007-swagger-from-decorators-and-zod-off-by-default.md)).
+With `API_DOCS=true` the api serves the Swagger UI at `/api/docs` and the document at
+`/api/docs-json`, both without a session; "Try it out" works after a signup or login there, since
+the browser keeps the cookie. Off by default: without the flag the routes don't exist (`404`).
+`pnpm dev` turns it on; compose passes `API_DOCS` from the root `.env`. A new route gets its
+decorators in the same change, and `test/api-docs.e2e.test.ts` lists every route of docs/api.md.
 
 ## 7. PDF rendering
 
