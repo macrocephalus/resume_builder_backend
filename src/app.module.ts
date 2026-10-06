@@ -9,6 +9,7 @@ import type { Env } from './config/env.schema'
 import { THROTTLES } from './config/limits'
 import { DatabaseModule } from './database/database.module'
 import { HealthModule } from './health/health.module'
+import { IngestModule } from './ingest/ingest.module'
 
 /** Everything HTTP. `main.ts` and the e2e tests build it with their own parsed `Env`. */
 @Module({})
@@ -25,6 +26,7 @@ export class AppModule {
         ThrottlerModule.forRoot([{ ttl: THROTTLES.login.ttlMs, limit: THROTTLES.login.limit }]),
         HealthModule,
         AuthModule,
+        IngestModule,
       ],
       providers: [{ provide: APP_FILTER, useClass: AppExceptionFilter }],
     }
