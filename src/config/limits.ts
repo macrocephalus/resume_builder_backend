@@ -45,6 +45,15 @@ export const SESSION = {
   ttlSeconds: 7 * 24 * 60 * 60,
 } as const
 
+/** A JSON request body (the PDF upload is multipart and limited by `PDF_UPLOAD`). */
+export const JSON_BODY = {
+  /**
+   * A `PATCH /api/cvs/:id` draft with every `CV_LIMITS` field full is ~111k characters: ~217 KB
+   * in Cyrillic, ~324 KB in CJK. Express's 100 KB default refused a long Cyrillic draft with 413.
+   */
+  bytes: 512 * 1024,
+} as const
+
 /**
  * The multipart body of `POST /api/ingest/pdf`: one `file` part of at most `API_LIMITS.pdf.bytes`
  * and nothing else, so no text field can make the body bigger than the file.

@@ -43,14 +43,14 @@ backend/
 ├── src/
 │   ├── main.ts              api: parseEnv → NestFactory → setupApp → runMigrations → listen
 │   ├── worker.ts            worker: parseEnv → createApplicationContext(WorkerModule) → ping Redis
-│   ├── setup-app.ts         /api prefix, cookie-parser, pino as the Nest logger, shutdown hooks;
-│   │                        the API docs when API_DOCS is on
+│   ├── setup-app.ts         /api prefix, JSON body limit, cookie-parser, pino as the Nest logger,
+│   │                        shutdown hooks; the API docs when API_DOCS is on
 │   ├── api-docs.ts          Swagger UI at /api/docs, OpenAPI at /api/docs-json (§6b)
 │   ├── app.module.ts        everything HTTP: AppModule.forRoot(env); the global error filter
 │   ├── worker.module.ts     config, logger, database, redis, cvs (services only), generation, agents
 │   ├── config/
 │   │   ├── env.schema.ts          Zod; parseEnv — a bad env stops the process with the variable's name
-│   │   ├── limits.ts              timeouts, session, throttles; generations/hour, active, caps
+│   │   ├── limits.ts              timeouts, session, throttles, JSON body; generations/hour, active, caps
 │   │   └── config.module.ts       ConfigModule.forRoot(env): the ENV token (global)
 │   ├── database/
 │   │   ├── schema/                users, cvs, cv-questions, generation-jobs,

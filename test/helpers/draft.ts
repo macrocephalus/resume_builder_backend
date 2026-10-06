@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { CvData, QuestionKind } from '@cv/shared'
+import { CV_LIMITS, type CvData, type QuestionKind } from '@cv/shared'
 import { eq } from 'drizzle-orm'
 import { DATABASE, type Database } from '../../src/database/database.module'
 import { cvQuestions, cvs } from '../../src/database/schema'
@@ -45,6 +45,60 @@ export const draft = (): CvData => ({
     'languages',
   ],
 })
+
+/**
+ * A draft with every list and every field at its `CV_LIMITS` maximum, written in CJK: 3 bytes
+ * per UTF-16 unit in JSON, the most a field's length allows without escapes.
+ */
+export const fullDraft = (): CvData => {
+  const text = (length: number) => '字'.repeat(length)
+  const times = <T>(count: number, item: () => T): T[] => Array.from({ length: count }, item)
+  const short = () => text(CV_LIMITS.shortText)
+  const bullets = () => times(CV_LIMITS.bullets, () => text(CV_LIMITS.bullet))
+  return {
+    contacts: {
+      fullName: short(),
+      email: short(),
+      phone: short(),
+      location: short(),
+      links: times(CV_LIMITS.links, () => text(CV_LIMITS.link)),
+    },
+    summary: text(CV_LIMITS.summary),
+    experience: times(CV_LIMITS.experience, () => ({
+      id: randomUUID(),
+      title: short(),
+      company: short(),
+      period: short(),
+      bullets: bullets(),
+    })),
+    projects: times(CV_LIMITS.projects, () => ({
+      id: randomUUID(),
+      name: short(),
+      period: short(),
+      url: text(CV_LIMITS.link),
+      bullets: bullets(),
+    })),
+    education: times(CV_LIMITS.education, () => ({
+      id: randomUUID(),
+      institution: short(),
+      degree: short(),
+      period: short(),
+    })),
+    certifications: times(CV_LIMITS.certifications, () => ({
+      id: randomUUID(),
+      name: short(),
+      issuer: short(),
+      year: short(),
+    })),
+    skills: times(CV_LIMITS.skills, () => text(CV_LIMITS.skill)),
+    languages: times(CV_LIMITS.languages, () => ({
+      id: randomUUID(),
+      name: short(),
+      level: short(),
+    })),
+    sectionOrder: draft().sectionOrder,
+  }
+}
 
 export const question = (
   kind: QuestionKind,

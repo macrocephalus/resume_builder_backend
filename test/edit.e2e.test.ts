@@ -8,10 +8,11 @@ import { eq } from 'drizzle-orm'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DATABASE, type Database } from '../src/database/database.module'
+import { JSON_BODY } from '../src/config/limits'
 import { cvs } from '../src/database/schema'
 import { type TestApp, createTestApp } from './helpers/app'
 import { createCv } from './helpers/cvs'
-import { JOB, draft, needsInput, question } from './helpers/draft'
+import { JOB, draft, fullDraft, needsInput, question } from './helpers/draft'
 
 const SCHOOL = '22222222-2222-4222-8222-222222222222'
 
@@ -113,6 +114,23 @@ describe('PATCH /api/cvs/:id', () => {
       [questionIds[1], 'open'],
       [questionIds[0], 'skipped'],
     ])
+  })
+
+  it('saves a draft with every field at its limit', async () => {
+    const { cookie, id } = await needsInput(app)
+    const data = fullDraft()
+    const cv = cvOf(await patch(cookie, id, { version: 1, data }))
+    expect(cv.data).toEqual(data)
+  })
+
+  it('is 413 INPUT_TOO_LARGE for a body over the JSON limit', async () => {
+    const { cookie, id } = await needsInput(app)
+    const summary = 'x'.repeat(JSON_BODY.bytes)
+    const error = errorOf(
+      await patch(cookie, id, { version: 1, data: { ...draft(), summary } }),
+      413,
+    )
+    expect(error.code).toBe('INPUT_TOO_LARGE')
   })
 
   it('saves a title and a draft together as one version', async () => {
