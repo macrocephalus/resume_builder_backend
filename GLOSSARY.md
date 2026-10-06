@@ -6,7 +6,7 @@ Question, Fact…) live in [shared/GLOSSARY.md](../shared/GLOSSARY.md).
 ## Language
 
 **Generation job**:
-The queued work of turning one CV's source into its draft; it runs as one or more attempts.
+The queued work of turning one CV's source into its draft, started by the user — by creating the CV or by pressing Retry; it runs as one or more attempts and outlives the CV it was for.
 _Avoid_: task, run, generation request
 
 **Attempt**:
