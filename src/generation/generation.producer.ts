@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import type { Queue } from 'bullmq'
 import { PinoLogger } from 'nestjs-pino'
 import { withTimeout } from '../common/async/with-timeout'
+import { safeError } from '../common/logging/safe-error'
 import { TIMEOUTS } from '../config/limits'
 import type { Executor } from '../database/database.module'
 import { generationJobs } from '../database/schema'
@@ -43,7 +44,10 @@ export class GenerationProducer {
         'adding a generation job',
       )
     } catch (err) {
-      this.logger.error({ err, cvId, jobId }, 'generation job not queued; recovery will add it')
+      this.logger.error(
+        { err: safeError(err), cvId, jobId },
+        'generation job not queued; recovery will add it',
+      )
     }
   }
 }

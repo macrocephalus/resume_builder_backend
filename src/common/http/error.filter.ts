@@ -3,6 +3,7 @@ import type { ErrorCode, ErrorResponse } from '@cv/shared'
 import type { Response } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../errors/app-error'
+import { safeError } from '../logging/safe-error'
 
 type ErrorReply = { status: number; body: ErrorResponse }
 
@@ -61,7 +62,8 @@ export class AppExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>()
     const known = toReply(exception)
-    if (!known) this.logger.error({ err: exception }, 'unhandled error')
+    // a failed query would otherwise log its parameters (a CV's text) with the error
+    if (!known) this.logger.error({ err: safeError(exception) }, 'unhandled error')
     // a 500 answered on purpose (DATA_CORRUPT) is still a fault on our side
     else if (known.status === 500) this.logger.error({ err: exception }, known.body.error.code)
     const { status, body } = known ?? INTERNAL
