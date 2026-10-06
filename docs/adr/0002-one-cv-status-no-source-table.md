@@ -2,8 +2,9 @@
 
 A CV is generated once; targeting another role creates a new CV that copies `source_text` and
 `facts`. So the source lives on the `cvs` row, and the CV has one status string that the UI maps
-directly (`docs/cv-statuses.md`). `generation_jobs` keeps one row per attempt for audit and the
-hourly limit, but it is not a second status the UI has to combine.
+directly (`docs/cv-statuses.md`). `generation_jobs` keeps one row per started generation for the
+hourly limit and `generation_attempts` one per attempt for audit, but neither is a second status
+the UI has to combine.
 
 ## Considered Options
 

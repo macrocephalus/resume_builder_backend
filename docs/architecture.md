@@ -15,8 +15,9 @@ Related documents, none of which this file repeats:
 | Product terms / backend terms | `shared/GLOSSARY.md` / [../GLOSSARY.md](../GLOSSARY.md) |
 | Short rules an agent must not break | [../CLAUDE.md](../CLAUDE.md) |
 
-Status: **draft for review**. Settled in the server grilling (2026-10-06,
-`.scratch/server/decisions.md`). Not scaffolded yet.
+Status: settled in the server grilling (2026-10-06, `.scratch/server/decisions.md`) and built
+ticket by ticket (`.scratch/server/issues/`). The skeleton of §1, §2 and the error shape exist;
+the files of later tickets are listed here as the plan.
 
 ## 1. Processes and the tree
 
@@ -28,37 +29,42 @@ queue recovery. Postgres is the only source of truth; Redis holds only the queue
 ```
 backend/
 ├── package.json             "files": ["dist", "drizzle", "assets"] — what ships in the image
-├── nest-cli.json            builder: swc
+├── nest-cli.json            builder: swc (typecheck is `tsc --noEmit`, a separate script)
+├── .swcrc                   decorators + metadata, CommonJS; *.test.ts stay out of dist/
 ├── tsconfig.json · tsconfig.build.json
-├── vitest.config.ts         unit: src/**/*.test.ts
-├── vitest.e2e.config.ts     e2e: test/**/*.e2e.test.ts (Postgres + Redis from compose)
-├── drizzle.config.ts
-├── .oxlintrc.json · .prettierrc
+├── vitest.config.mts        unit: src/**/*.test.ts (unplugin-swc for the decorators)
+├── vitest.e2e.config.mts    e2e: test/**/*.e2e.test.ts (Postgres + Redis from compose)
+├── drizzle.config.ts        `pnpm db:generate` → drizzle/
+├── .oxlintrc.json · .prettierrc.json
 ├── Dockerfile · compose.yaml
 ├── drizzle/                 generated SQL migrations, committed; the api applies them on start
 ├── assets/fonts/            Liberation Sans Regular/Bold (+ OFL licence)
 ├── src/
-│   ├── main.ts              api: pino, cookie-parser, /api prefix, error filter, migrate(), JWT secret
-│   ├── worker.ts            worker: createApplicationContext(WorkerModule)
-│   ├── app.module.ts        everything HTTP
-│   ├── worker.module.ts     config, logger, database, cvs (services only), generation, agents
+│   ├── main.ts              api: parseEnv → NestFactory → setupApp → runMigrations → listen
+│   ├── worker.ts            worker: parseEnv → createApplicationContext(WorkerModule) → ping Redis
+│   ├── setup-app.ts         /api prefix, cookie-parser, pino as the Nest logger, shutdown hooks
+│   ├── app.module.ts        everything HTTP: AppModule.forRoot(env); the global error filter
+│   ├── worker.module.ts     config, logger, database, redis, cvs (services only), generation, agents
 │   ├── config/
-│   │   ├── env.schema.ts          Zod; a bad env stops the process at start
+│   │   ├── env.schema.ts          Zod; parseEnv — a bad env stops the process with the variable's name
 │   │   ├── limits.ts              generations/hour, active, ingest/min, timeouts, caps
-│   │   └── config.module.ts
+│   │   └── config.module.ts       ConfigModule.forRoot(env): the ENV token (global)
 │   ├── database/
 │   │   ├── schema/                users, cvs, cv-questions, generation-jobs,
-│   │   │                          generation-attempts, app-secrets, index
-│   │   ├── database.module.ts     the DB provider (token), closes the pool
-│   │   └── migrate.ts
+│   │   │                          generation-attempts, app-secrets, index (camelCase → snake_case)
+│   │   ├── database.module.ts     the DATABASE token (Drizzle over one pg pool), closes the pool
+│   │   └── migrate.ts             runMigrations(url) over drizzle/, on its own connection
+│   ├── redis/
+│   │   └── redis.module.ts        the REDIS token (ioredis, shared with BullMQ), closes on shutdown
 │   ├── common/
-│   │   ├── errors/                app-error.ts (code, status, details), error-codes.ts
+│   │   ├── errors/                app-error.ts (status, code from @cv/shared, details)
 │   │   ├── http/                  error.filter.ts ({ error: { code, message, details } }),
 │   │   │                          zod-validation.pipe.ts (schemas from @cv/shared)
 │   │   ├── auth/                  jwt-auth.guard.ts (global; verify, never decode),
 │   │   │                          public.decorator.ts, current-user.decorator.ts
-│   │   └── logging/               logger.module.ts (nestjs-pino, JSON to stdout, redact)
-│   ├── health/                    health.controller.ts — GET /api/health (SELECT 1)
+│   │   └── logging/               logger.module.ts (nestjs-pino, JSON to stdout, request id, redact)
+│   ├── health/                    health.controller.ts — GET /api/health (SELECT 1 → 200; else 503,
+│   │                              code INTERNAL — the only non-500 use of that code)
 │   ├── auth/
 │   │   ├── auth.controller.ts     signup, login (throttled), logout, me
 │   │   ├── auth.service.ts
@@ -113,12 +119,21 @@ backend/
 │       ├── render-cv-pdf.ts           CvData + language → Buffer
 │       └── templates/classic.ts       CvTemplate = (cv, doc) => void
 └── test/                              e2e (supertest)
-    ├── setup.ts                       cv_test database, migrate, truncate, own BullMQ prefix
-    ├── helpers/                       app.ts (api + worker in process), auth.ts, fake-model.ts
-    └── *.e2e.test.ts                  auth, isolation, generation, questions, cvs
+    ├── global-setup.ts                once per run: cv_test exists, migrated, test queue keys gone
+    ├── setup.ts                       before every test: truncate all tables
+    ├── helpers/                       env.ts (test Env, cv_test, queue prefix), app.ts (api in
+    │                                  process, as main.ts builds it), auth.ts, fake-model.ts
+    └── *.e2e.test.ts                  health, auth, isolation, generation, questions, cvs
 ```
 
 Unit tests sit next to the file (`verify-draft.test.ts`, `prompt-builder.test.ts`, …).
+
+Scripts (`pnpm <script>` in `backend/`): `build` (`nest build`, SWC), `start` / `start:worker`
+(`node dist/main.js` / `dist/worker.js`), `dev` / `dev:worker` (watch; reads the root `.env` through
+`node --env-file-if-exists`, so `DATABASE_URL` and `REDIS_URL` for the host go there),
+`typecheck` (`tsc --noEmit`), `lint` (oxlint), `format` / `format:check` (prettier), `test` (unit),
+`test:e2e` (needs the compose Postgres and Redis), `db:generate` (a migration from the schema).
+BullMQ is the 5.x line: 6.x moves the Redis client to a peer dependency and was not verified here.
 
 Rules:
 - Ownership checks live in `cvs`; other modules get a CV only through `CvsService.getOwned(id, userId)`.
@@ -176,6 +191,9 @@ Automatic retries are BullMQ's own (`attempts: 3`, exponential backoff from 5 s)
 `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `duration_ms`, `error`, `created_at`, `finished_at`. Audit only.
 
 **app_secrets** — `name text pk`, `value text`. Holds the JWT secret (§6).
+
+Every foreign key has an index; `generation_jobs (user_id, created_at)` serves the hourly count and
+`cvs (status, created_at)` the queue position and the recovery.
 
 No `cv_sources` table and no job-level status: [adr/0002](adr/0002-one-cv-status-no-source-table.md).
 
@@ -341,8 +359,11 @@ processor throw BullMQ's `UnrecoverableError`.
 
 ## 6a. Logs
 
-pino (`nestjs-pino`) to stdout as JSON. Each line carries requestId, userId, cvId, jobId where
-known; LLM errors are logged in full. Never logged: `source_text`, answers, passwords, the cookie.
+pino (`nestjs-pino`) to stdout as JSON, level from `LOG_LEVEL` (default `info`; the tests run
+`silent`). Each line carries requestId (`x-request-id`, kept from the request or generated, and
+returned in the response), userId, cvId, jobId where known; LLM errors are logged in full. The
+docker healthcheck's `GET /api/health` gets no request line. Never logged: `source_text`, answers,
+passwords, the cookie and authorization headers (redacted).
 
 ## 7. PDF rendering
 
@@ -369,4 +390,7 @@ Most important first; the cut order of features is in root architecture §12.
 Vitest everywhere, `supertest` for API e2e, `unplugin-swc` for decorators. The fake model lives
 only in tests (swapped in through the model factory's DI token); there is no runtime switch.
 e2e runs against Postgres and Redis from `compose.yaml` (`cv_test` database, own BullMQ prefix,
-tables truncated between tests); unit tests of pure functions need neither.
+tables truncated between tests); unit tests of pure functions need neither. `pnpm test:e2e` takes
+the host and port from `DATABASE_URL` / `REDIS_URL` when set (compose on other ports) and always
+replaces the database name with `cv_test`; when the services are down, the run stops with a message
+saying how to start them. Test files share the database, so they run one after another.

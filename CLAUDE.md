@@ -1,17 +1,29 @@
 # Backend
 
-NestJS API + BullMQ worker for the AI CV Builder. **Not scaffolded yet.** Where code goes, the
-tables, the generation agent, verification, failure handling, auth and PDF rendering:
-`backend/docs/architecture.md`; why: `backend/docs/adr/`; backend terms: `backend/GLOSSARY.md`.
-Product, containers and stack: root `docs/architecture.md` §1–§4; API contract: `docs/api.md`;
-statuses: `docs/cv-statuses.md`.
+NestJS API + BullMQ worker for the AI CV Builder. Where code goes, the tables, the generation
+agent, verification, failure handling, auth and PDF rendering: `backend/docs/architecture.md`;
+why: `backend/docs/adr/`; backend terms: `backend/GLOSSARY.md`. Product, containers and stack:
+root `docs/architecture.md` §1–§4; API contract: `docs/api.md`; statuses: `docs/cv-statuses.md`.
 
-Server work starts here, not with a root spec (root `workflow.md` §1). Before grilling it, read
-`.scratch/server/handoff.md`: sources, what the root already settled (root
-`.scratch/backend/decisions.md`), what the frontend mocks (`frontend/src/mocks`) leave to the
-server, and the open questions.
+Server work starts here, not with a root spec (root `workflow.md` §1). The design was grilled
+from `.scratch/server/handoff.md`; the spec and the tickets being built are in
+`.scratch/server/` (`spec.md`, `issues/`).
 
 Dependencies are installed from the repo root (`pnpm install`): one workspace, one lockfile.
+`@cv/shared` is consumed from its `dist`, so build it once (`pnpm --filter @cv/shared build`)
+before the backend's typecheck, tests or build after a fresh clone.
+
+## Commands
+
+All from `backend/`, Node through nvm (root `CLAUDE.md`, "Environment"):
+
+- `pnpm dev` / `pnpm dev:worker` — watch mode; env from the root `.env`, which then needs
+  `DATABASE_URL=postgres://cv:cv@127.0.0.1:5432/cv` and `REDIS_URL=redis://127.0.0.1:6379` beside
+  the key (compose's ports; adjust when `POSTGRES_PORT` was changed).
+- Checks before a commit: `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build`.
+- `pnpm test:e2e` — against the compose Postgres and Redis (`docker compose up postgres redis`
+  here; `DATABASE_URL=… pnpm test:e2e` when the ports differ). Uses the `cv_test` database only.
+- `pnpm db:generate` after a schema change; commit the SQL in `drizzle/`.
 
 ## Docker
 
