@@ -10,7 +10,7 @@ import {
   isInProgress,
 } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
+import { and, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
@@ -144,15 +144,11 @@ export class CvsService {
   /** The user's CVs, the most recently changed first. */
   async list(userId: string): Promise<CvSummary[]> {
     const rows = await this.db
-      .select({
-        ...getTableColumns(cvs),
-        openQuestions: sql<number>`(
-          select count(*) from ${cvQuestions}
-          where ${cvQuestions.cvId} = ${cvs.id} and ${cvQuestions.status} = 'open'
-        )`.mapWith(Number),
-      })
+      .select({ ...getTableColumns(cvs), openQuestions: count(cvQuestions.id) })
       .from(cvs)
+      .leftJoin(cvQuestions, and(eq(cvQuestions.cvId, cvs.id), eq(cvQuestions.status, 'open')))
       .where(eq(cvs.userId, userId))
+      .groupBy(cvs.id)
       .orderBy(...NEWEST_FIRST)
     return rows.map(({ openQuestions, ...row }) => toSummary(row, openQuestions))
   }

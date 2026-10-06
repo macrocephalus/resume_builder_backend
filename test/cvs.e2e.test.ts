@@ -17,7 +17,7 @@ import { GENERATION_QUEUE } from '../src/generation/generation.queue'
 import { type TestApp, createTestApp } from './helpers/app'
 import { signUp } from './helpers/auth'
 import { createCv, newCvBody } from './helpers/cvs'
-import { draft } from './helpers/draft'
+import { draft, needsInput, question } from './helpers/draft'
 import { SOURCE_TEXT } from './helpers/model'
 
 const expectError = (response: request.Response, status: number, code: string) => {
@@ -236,6 +236,33 @@ describe('CVs before generation', () => {
         createdAt: newer.createdAt,
         updatedAt: newer.updatedAt,
       })
+    })
+
+    it('counts the open questions of each CV', async () => {
+      const phone = question('text', { section: 'contacts', field: 'phone' })
+      const skills = question('text', { section: 'skills' })
+      const { cookie, id, questionIds } = await needsInput(app, phone, skills, phone)
+      const queued = await createCv(app.server(), cookie)
+      await db.insert(cvQuestions).values(questionRow(id, 4, 'skipped'))
+
+      const openQuestions = async () =>
+        new Map(
+          cvListResponseSchema
+            .parse((await as(cookie).get('/api/cvs')).body)
+            .items.map((item) => [item.id, item.openQuestions]),
+        )
+      expect(await openQuestions()).toEqual(
+        new Map([
+          [id, 3],
+          [queued.id, 0],
+        ]),
+      )
+
+      const answered = await as(cookie)
+        .post(`/api/cvs/${id}/questions/${questionIds[1]}/answer`)
+        .send({ kind: 'text', value: 'Kafka' })
+      expect(answered.status).toBe(200)
+      expect((await openQuestions()).get(id)).toBe(2)
     })
 
     it('is empty for a new user', async () => {
