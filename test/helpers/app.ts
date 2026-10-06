@@ -21,5 +21,6 @@ export const createTestApp = async (): Promise<TestApp> => {
   const app = moduleRef.createNestApplication<NestExpressApplication>()
   setupApp(app)
   await app.init()
+  // Nest types the server as `any`; supertest wants its `App`
   return { app, server: () => app.getHttpServer() as App, close: () => app.close() }
 }

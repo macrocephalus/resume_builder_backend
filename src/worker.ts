@@ -4,11 +4,10 @@ import { NestFactory } from '@nestjs/core'
 import type { Redis } from 'ioredis'
 import { Logger } from 'nestjs-pino'
 import { parseEnv } from './config/env.schema'
+import { TIMEOUTS } from './config/limits'
 import { REDIS } from './redis/redis.module'
 import { run } from './run'
 import { WorkerModule } from './worker.module'
-
-const REDIS_START_TIMEOUT_MS = 10_000
 
 /** The shared connection retries forever; at start we want to fail instead, so compose restarts us. */
 const pingWithin = async (redis: Redis, ms: number): Promise<void> => {
@@ -34,7 +33,7 @@ run(async () => {
   app.useLogger(logger)
   app.enableShutdownHooks()
   try {
-    await pingWithin(app.get<Redis>(REDIS), REDIS_START_TIMEOUT_MS)
+    await pingWithin(app.get<Redis>(REDIS), TIMEOUTS.redisStartMs)
   } catch (error) {
     await app.close()
     throw error

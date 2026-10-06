@@ -26,8 +26,9 @@ describe('ZodValidationPipe', () => {
     const error = caught(() => pipe.transform({ email: 'nope' }))
     expect(error.status).toBe(400)
     expect(error.code).toBe('VALIDATION_ERROR')
-    expect(Object.keys(error.details.fields as object).sort()).toEqual(['email', 'password'])
-    expect((error.details.fields as Record<string, string>).email).toEqual(expect.any(String))
+    expect(error.details).toEqual({
+      fields: { email: expect.any(String), password: expect.any(String) },
+    })
   })
 
   it('names a nested field by its dotted path and the whole body as "body"', () => {

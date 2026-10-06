@@ -30,6 +30,7 @@ const TOO_LARGE = reply(413, 'INPUT_TOO_LARGE', 'The request body is too large.'
  */
 const expressClientError = (exception: unknown): number | null => {
   if (typeof exception !== 'object' || exception === null) return null
+  // read two optional fields of an unknown object; both are checked before they are trusted
   const { expose, status } = exception as { expose?: unknown; status?: unknown }
   return expose === true && typeof status === 'number' && status >= 400 && status < 500
     ? status

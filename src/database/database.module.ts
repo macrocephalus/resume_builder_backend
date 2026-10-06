@@ -3,6 +3,7 @@ import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { ENV } from '../config/config.module'
 import type { Env } from '../config/env.schema'
+import { TIMEOUTS } from '../config/limits'
 import * as schema from './schema'
 
 /** Injection token for the Drizzle database (`Database`). */
@@ -20,7 +21,10 @@ const PG_POOL = Symbol('PG_POOL')
       inject: [ENV],
       useFactory: (env: Env) =>
         // a connection that can't be made fails fast, so /api/health answers 503 instead of hanging
-        new Pool({ connectionString: env.DATABASE_URL, connectionTimeoutMillis: 5_000 }),
+        new Pool({
+          connectionString: env.DATABASE_URL,
+          connectionTimeoutMillis: TIMEOUTS.databaseConnectMs,
+        }),
     },
     {
       provide: DATABASE,

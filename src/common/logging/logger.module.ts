@@ -6,10 +6,15 @@ import { ENV } from '../../config/config.module'
 import type { Env } from '../../config/env.schema'
 
 const REQUEST_ID_HEADER = 'x-request-id'
+/** A client-sent id longer than this is replaced, so a log line cannot be flooded through it. */
+const MAX_REQUEST_ID_LENGTH = 128
 
 const requestId = (req: IncomingMessage, res: ServerResponse): string => {
   const sent = req.headers[REQUEST_ID_HEADER]
-  const id = typeof sent === 'string' && sent.length > 0 && sent.length <= 128 ? sent : randomUUID()
+  const id =
+    typeof sent === 'string' && sent.length > 0 && sent.length <= MAX_REQUEST_ID_LENGTH
+      ? sent
+      : randomUUID()
   res.setHeader(REQUEST_ID_HEADER, id)
   return id
 }
