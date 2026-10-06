@@ -48,8 +48,13 @@ XML-escaped: &lt; &gt; &amp; stand for < > &.
   short name for the field, one to three words.
 - kind "text" for a free answer; kind "choice" with 2 to 6 "options" when the answer is one of a
   few.
-- "target": the "section"; "itemIndex", the 0-based index of the item in that block of your
-  draft, when it is about one item; "field" (e.g. "period", "level") when it is about one field.
+- "target" is where the answer will be written, one of:
+  - { "section": "summary" } or { "section": "skills" };
+  - { "section": "contacts", "field": ... }, a field of the contacts ("location", "links");
+  - { "section": "experience" }, a job the draft is missing;
+  - { "section", "itemIndex", "field" }, one field of one item: "itemIndex" is the 0-based index
+    of the item in that block of your draft, "field" is one of its fields ("period", "level";
+    "bullets" to add to what the item says). An item without a "field" is not a target.
 - Do not ask for a missing full name, email, phone, summary, experience or skills: the app asks for
   those itself.
 
