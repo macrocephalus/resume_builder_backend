@@ -1,17 +1,28 @@
-import type { CreateCvBody, Cv, CvStatusInfo, CvSummary } from '@cv/shared'
+import {
+  CV_STATUSES,
+  type CreateCvBody,
+  type Cv,
+  type CvStatus,
+  type CvStatusInfo,
+  type CvSummary,
+  isInProgress,
+} from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
 import { and, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { AppError } from '../common/errors/app-error'
 import { GENERATION } from '../config/limits'
 import { DATABASE, type Database } from '../database/database.module'
-import { cvQuestions, cvs } from '../database/schema'
+import { cvQuestions, cvs, generationJobs } from '../database/schema'
 import { GenerationProducer } from '../generation/generation.producer'
 import { LimitsService } from '../limits/limits.service'
+import { CvStatusService } from './cv-status.service'
 import { type CvRow, toCv, toStatusInfo, toSummary } from './cv.mapper'
 import { queuePositions } from './queue-position'
 
 const uuid = z.uuid()
+
+const IN_PROGRESS = CV_STATUSES.filter(isInProgress)
 
 /** The list order: the most recently changed first (docs/api.md), ties by id. */
 const NEWEST_FIRST = [desc(cvs.updatedAt), desc(cvs.id)]
@@ -19,12 +30,16 @@ const NEWEST_FIRST = [desc(cvs.updatedAt), desc(cvs.id)]
 /** Another user's CV is answered exactly like a missing one (docs/api.md "Conventions"). */
 const notFound = () => new AppError(404, 'NOT_FOUND', 'This CV does not exist.')
 
+const notRetryable = () =>
+  new AppError(409, 'INVALID_STATE', 'Only a CV whose generation failed can be retried.')
+
 @Injectable()
 export class CvsService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly limits: LimitsService,
     private readonly producer: GenerationProducer,
+    private readonly statusService: CvStatusService,
   ) {}
 
   /**
@@ -107,6 +122,27 @@ export class CvsService {
     return rows.map((row) => toStatusInfo(row, positions.get(row.id) ?? null))
   }
 
+  /**
+   * Starts the generation of a failed CV again, from attempt 1, with its stored source and facts:
+   * a new job (counted like a new CV) in the transaction that moves it back to `queued`.
+   */
+  async retry(userId: string, id: string): Promise<Cv> {
+    const row = await this.getOwned(id, userId)
+    if (row.status !== 'failed') throw notRetryable()
+    const jobId = await this.db.transaction(async (tx) => {
+      await this.limits.assertCanStart(userId, tx)
+      const moved = await this.statusService.transition(row.id, 'queued', {
+        changes: { attempt: 1, stage: null, errorCode: null, error: null },
+        executor: tx,
+      })
+      // another request retried it first
+      if (!moved) throw notRetryable()
+      return this.producer.recordJob(row, tx)
+    })
+    await this.producer.enqueue(jobId, row.id)
+    return this.get(userId, row.id)
+  }
+
   async get(userId: string, id: string): Promise<Cv> {
     const row = await this.getOwned(id, userId)
     const questions = await this.db.select().from(cvQuestions).where(eq(cvQuestions.cvId, row.id))
@@ -120,6 +156,19 @@ export class CvsService {
   async delete(userId: string, id: string): Promise<void> {
     const row = await this.getOwned(id, userId)
     await this.db.delete(cvs).where(and(eq(cvs.id, row.id), eq(cvs.userId, userId)))
+  }
+
+  /**
+   * The newest job of every CV in progress, of all users: what the worker's queue recovery checks
+   * against BullMQ. An older job of a CV was replaced by a Retry.
+   */
+  async latestJobsInProgress(): Promise<Array<{ jobId: string; cvId: string; status: CvStatus }>> {
+    return this.db
+      .selectDistinctOn([cvs.id], { jobId: generationJobs.id, cvId: cvs.id, status: cvs.status })
+      .from(cvs)
+      .innerJoin(generationJobs, eq(generationJobs.cvId, cvs.id))
+      .where(inArray(cvs.status, IN_PROGRESS))
+      .orderBy(cvs.id, desc(generationJobs.createdAt))
   }
 
   private async queuePositionOf(row: CvRow): Promise<number | null> {

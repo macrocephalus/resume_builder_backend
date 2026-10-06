@@ -1,3 +1,4 @@
+import { APICallError } from 'ai'
 import { MockLanguageModelV4 } from 'ai/test'
 import type { DraftSubmission } from '../../src/agents/draft/draft-submission.schema'
 
@@ -32,9 +33,54 @@ export const textStep = (text: string): LanguageModelV4GenerateResult => ({
   warnings: [],
 })
 
-/** A model that answers each step with the next scripted result. */
-export const scriptedModel = (...steps: LanguageModelV4GenerateResult[]): MockLanguageModelV4 =>
-  new MockLanguageModelV4({ provider: 'test', modelId: 'scripted', doGenerate: steps })
+/**
+ * The Anthropic API failing with `statusCode`. `retry-after-ms: 0` lets the SDK's own retries of
+ * the call (2 more) go without waiting, so one retryable status fails an attempt after 3 calls.
+ */
+export const apiError = (statusCode: number): APICallError =>
+  new APICallError({
+    message: `Anthropic answered ${statusCode}`,
+    url: 'https://api.anthropic.com/v1/messages',
+    requestBodyValues: {},
+    statusCode,
+    responseHeaders: { 'retry-after-ms': '0' },
+  })
+
+/** A model whose calls, in order, answer the next scripted result or throw the next error. */
+export const scriptedModel = (
+  ...calls: Array<LanguageModelV4GenerateResult | Error>
+): MockLanguageModelV4 => {
+  let next = 0
+  return new MockLanguageModelV4({
+    provider: 'test',
+    modelId: 'scripted',
+    doGenerate: async () => {
+      const call = calls[next++]
+      if (call === undefined)
+        throw new Error(`the model was called ${next} times, scripted for ${calls.length}`)
+      if (call instanceof Error) throw call
+      return call
+    },
+  })
+}
+
+/** A model that never answers, like a hung connection, until the call is aborted. */
+export const hangingModel = (): MockLanguageModelV4 =>
+  new MockLanguageModelV4({
+    provider: 'test',
+    modelId: 'hanging',
+    doGenerate: ({ abortSignal }) =>
+      new Promise((_, reject) => {
+        abortSignal?.addEventListener(
+          'abort',
+          () => {
+            const reason: unknown = abortSignal.reason
+            reject(reason instanceof Error ? reason : new Error('aborted'))
+          },
+          { once: true },
+        )
+      }),
+  })
 
 const SECTION_ORDER: DraftSubmission['cv']['sectionOrder'] = [
   'summary',

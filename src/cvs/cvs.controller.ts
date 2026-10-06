@@ -51,6 +51,13 @@ export class CvsController {
     return { cv: await this.cvs.get(userId, id) }
   }
 
+  /** `202`: the failed CV is queued again. */
+  @Post(':id/retry')
+  @HttpCode(202)
+  async retry(@CurrentUser() userId: string, @Param('id') id: string): Promise<CvResponse> {
+    return { cv: await this.cvs.retry(userId, id) }
+  }
+
   @Delete(':id')
   @HttpCode(204)
   async delete(@CurrentUser() userId: string, @Param('id') id: string): Promise<void> {

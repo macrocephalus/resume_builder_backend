@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import type { Queue } from 'bullmq'
+import type { JobState, Queue } from 'bullmq'
 import { PinoLogger } from 'nestjs-pino'
 import { withTimeout } from '../common/async/with-timeout'
 import { safeError } from '../common/logging/safe-error'
@@ -7,6 +7,21 @@ import { TIMEOUTS } from '../config/limits'
 import type { Executor } from '../database/database.module'
 import { generationJobs } from '../database/schema'
 import { GENERATION_JOB_NAME, GENERATION_QUEUE, type GenerationJobData } from './generation.queue'
+
+/** States of a job BullMQ will still run: waiting, delayed or running now. */
+const LIVE: ReadonlySet<JobState | 'unknown'> = new Set([
+  'waiting',
+  'waiting-children',
+  'prioritized',
+  'delayed',
+  'active',
+])
+
+/**
+ * What became of a job, for the recovery: `live` (BullMQ will run it), `failed` (BullMQ gave up
+ * on it) or `gone` (done, or a Redis that doesn't have it).
+ */
+export type JobFate = 'live' | 'failed' | 'gone'
 
 /**
  * Starts a generation in two steps: the job row is written in the caller's transaction (with the
@@ -49,5 +64,30 @@ export class GenerationProducer {
         'generation job not queued; recovery will add it',
       )
     }
+  }
+
+  async fateOf(jobId: string): Promise<JobFate> {
+    const state = await withTimeout(
+      this.queue.getJobState(jobId),
+      TIMEOUTS.enqueueMs,
+      'reading a generation job',
+    )
+    if (LIVE.has(state)) return 'live'
+    return state === 'failed' ? 'failed' : 'gone'
+  }
+
+  /**
+   * Recovery: puts a job that is not live back on the queue. One BullMQ still stores (finished)
+   * is removed first, since its jobId would make the new one a duplicate.
+   */
+  async requeue(jobId: string, cvId: string): Promise<void> {
+    await withTimeout(
+      (async () => {
+        await this.queue.remove(jobId)
+        await this.queue.add(GENERATION_JOB_NAME, { cvId }, { jobId })
+      })(),
+      TIMEOUTS.enqueueMs,
+      'putting a generation job back',
+    )
   }
 }

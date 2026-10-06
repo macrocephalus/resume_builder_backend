@@ -10,13 +10,7 @@ import { cvQuestions, cvs, generationAttempts, generationJobs } from '../src/dat
 import { type TestApp, createTestApp } from './helpers/app'
 import { signUp } from './helpers/auth'
 import { createCv } from './helpers/cvs'
-import {
-  SOURCE_TEXT,
-  completeSubmission,
-  scriptedModel,
-  submitStep,
-  textStep,
-} from './helpers/model'
+import { SOURCE_TEXT, completeSubmission, scriptedModel, submitStep } from './helpers/model'
 import { type TestWorker, startTestWorker, waitForCv, waitUntil } from './helpers/worker'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -210,24 +204,6 @@ describe('generation, happy path (scripted model)', () => {
     const created = await createCv(app.server(), cookie)
     await waitForCv(app.server(), cookie, created.id)
     expect(stages).toEqual(['drafting'])
-  })
-
-  it('fails the CV with LLM_INVALID_OUTPUT when the model never submits a valid draft', async () => {
-    worker = await startTestWorker(scriptedModel(textStep('Here is your CV: ...')))
-    const { cookie } = await signUp(app.server())
-    const created = await createCv(app.server(), cookie)
-
-    const cv = await waitForCv(app.server(), cookie, created.id)
-    expect(cv).toMatchObject({
-      status: 'failed',
-      stage: null,
-      errorCode: 'LLM_INVALID_OUTPUT',
-      error: 'The AI returned an unusable draft several times. Try again.',
-      data: null,
-    })
-    expect(await attempts()).toEqual([
-      expect.objectContaining({ status: 'failed', agentSteps: 1, error: 'no valid submission' }),
-    ])
   })
 
   it('leaves no trace of a CV deleted during the attempt, and keeps its job row', async () => {

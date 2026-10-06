@@ -7,8 +7,8 @@ import { GenerationModule } from './generation/generation.module'
 import { RedisModule } from './redis/redis.module'
 
 /**
- * The worker process: no HTTP. Config, logger, database, the Redis connection and the generation
- * processor; the queue recovery plugs in here.
+ * The worker process: no HTTP. Config, logger, database, the Redis connection, the generation
+ * processor and the queue recovery.
  */
 @Module({})
 export class WorkerModule {

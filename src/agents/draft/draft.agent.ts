@@ -16,12 +16,14 @@ import { SUBMIT_DRAFT, createSubmitDraftTool, verdictOf } from './tools/submit-d
 export const DRAFT_AGENT_LIMITS = {
   steps: 3,
   stepMs: 120_000,
-  /** The BullMQ lock lasts longer than this. */
   totalMs: 300_000,
   /** Retries of one step by the SDK (a short 529 on step 2 keeps step 1). */
   maxRetries: 2,
   maxOutputTokens: 16_000,
 } as const
+
+/** How long one step and one attempt may take; tests shorten them. */
+export type DraftAgentTimeouts = { stepMs: number; totalMs: number }
 
 /** Anthropic prompt caching: a breakpoint where it is set, and automatic for the whole request. */
 const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const
@@ -45,6 +47,7 @@ export const runDraftAgent = async (
   model: LanguageModel,
   input: PromptInput,
   onStage: OnStage,
+  timeouts: DraftAgentTimeouts,
 ): Promise<DraftRun> => {
   const { instructions, message } = buildPrompt(input)
   const system: SystemModelMessage = {
@@ -61,7 +64,7 @@ export const runDraftAgent = async (
     // the model rejects forced tool use; the instructions require the tool instead
     toolChoice: 'auto',
     stopWhen: [stopWhenAccepted, isStepCount(DRAFT_AGENT_LIMITS.steps)],
-    timeout: { stepMs: DRAFT_AGENT_LIMITS.stepMs, totalMs: DRAFT_AGENT_LIMITS.totalMs },
+    timeout: { stepMs: timeouts.stepMs, totalMs: timeouts.totalMs },
     maxRetries: DRAFT_AGENT_LIMITS.maxRetries,
     maxOutputTokens: DRAFT_AGENT_LIMITS.maxOutputTokens,
     providerOptions: CACHE,

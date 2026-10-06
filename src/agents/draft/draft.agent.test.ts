@@ -9,7 +9,7 @@ import {
 } from '../../../test/helpers/model'
 import type { PromptInput } from '../prompt/prompt-builder'
 import type { DraftSubmission } from './draft-submission.schema'
-import { runDraftAgent } from './draft.agent'
+import { DRAFT_AGENT_LIMITS, runDraftAgent } from './draft.agent'
 
 const input: PromptInput = {
   source: SOURCE_TEXT,
@@ -30,9 +30,10 @@ const withInventedBullet = (bullet = 'Led a team of 12 engineers'): DraftSubmiss
 const run = async (...steps: Parameters<typeof scriptedModel>) => {
   const stages: GenerationStage[] = []
   const model = scriptedModel(...steps)
-  const result = await runDraftAgent(model, input, async (stage) => {
+  const onStage = async (stage: GenerationStage) => {
     stages.push(stage)
-  })
+  }
+  const result = await runDraftAgent(model, input, onStage, DRAFT_AGENT_LIMITS)
   return { result, stages, model }
 }
 

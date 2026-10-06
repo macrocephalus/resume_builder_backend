@@ -4,8 +4,9 @@ import { Test } from '@nestjs/testing'
 import type { App } from 'supertest/types'
 import { AppModule } from '../../src/app.module'
 import type { Env } from '../../src/config/env.schema'
+import { GENERATION_TIMING } from '../../src/generation/generation.queue'
 import { setupApp } from '../../src/setup-app'
-import { testEnv } from './env'
+import { TEST_TIMING, testEnv } from './env'
 
 export type TestApp = {
   app: INestApplication
@@ -15,13 +16,16 @@ export type TestApp = {
 }
 
 /**
- * The api as `main.ts` builds it, on the test database, listening on no port. `overrides`
- * replaces parts of the test env, e.g. `JWT_SECRET`.
+ * The api as `main.ts` builds it, on the test database, listening on no port, with the tests'
+ * generation timing. `overrides` replaces parts of the test env, e.g. `JWT_SECRET`.
  */
 export const createTestApp = async (overrides: Partial<Env> = {}): Promise<TestApp> => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.forRoot({ ...testEnv(), ...overrides })],
-  }).compile()
+  })
+    .overrideProvider(GENERATION_TIMING)
+    .useValue(TEST_TIMING)
+    .compile()
   const app = moduleRef.createNestApplication<NestExpressApplication>()
   setupApp(app)
   await app.init()

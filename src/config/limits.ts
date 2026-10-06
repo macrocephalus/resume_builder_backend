@@ -21,6 +21,14 @@ export const GENERATION = {
   attempts: 3,
   /** First delay between attempts; BullMQ doubles it each time. */
   backoffMs: 5_000,
+  /**
+   * How long a worker's hold on a running job lasts; BullMQ renews it every half of this while the
+   * attempt runs. A worker that died (or closed on SIGTERM) stops renewing, so its job is stalled
+   * and runs again within about a minute (the lock plus BullMQ's 30 s stalled check).
+   */
+  lockMs: 30_000,
+  /** How often the worker puts the jobs Redis lost back on the queue (and once at start). */
+  recoveryMs: 60_000,
   /** How long a failed BullMQ job stays in Redis for debugging; Postgres keeps the outcome. */
   failedJobKeepSeconds: 24 * 60 * 60,
 } as const

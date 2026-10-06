@@ -4,6 +4,10 @@ import {
   LOCAL_REDIS_URL,
   parseEnv,
 } from '../../src/config/env.schema'
+import {
+  GENERATION_TIMING_DEFAULTS,
+  type GenerationTiming,
+} from '../../src/generation/generation.queue'
 
 /**
  * Where the e2e tests find Postgres and Redis: the project's own compose services on their host
@@ -33,3 +37,9 @@ export const testEnv = (): Env =>
     WORKER_CONCURRENCY: '1',
     LOG_LEVEL: 'silent',
   })
+
+/**
+ * The waits of a generation in the e2e tests: a backoff long enough to see `retrying` by polling
+ * and short enough to run three attempts in about a second; the rest as in production.
+ */
+export const TEST_TIMING: GenerationTiming = { ...GENERATION_TIMING_DEFAULTS, backoffMs: 300 }
