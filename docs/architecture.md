@@ -84,7 +84,7 @@ backend/
 │   │   ├── ingest.service.ts      result → 415 / 413 / 422 or { text, pages, chars, filename }
 │   │   └── pdf-text.ts            pure: magic bytes, unpdf, ≤ 10 pages, ≥ 50 chars
 │   ├── cvs/
-│   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, delete, retry
+│   │   ├── cvs.controller.ts      create, list, statuses, get, PATCH, pdf, delete, retry
 │   │   ├── cvs.service.ts         getOwned(id, userId) — the only way to a CV; lockOwned in a
 │   │   │                          transaction that writes from what it read
 │   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS);
@@ -147,10 +147,13 @@ backend/
 │   │       ├── verify-draft.ts        pure: problems by the rules of §4
 │   │       ├── sanitise.ts            pure: remove/clear what failed → claims, fields, skills
 │   │       └── normalise.ts           case, whitespace, quotes, dashes, phone digits
-│   └── pdf/
-│       ├── pdf.controller.ts          GET /api/cvs/:id/pdf (getOwned + status)
-│       ├── render-cv-pdf.ts           CvData + language → Buffer
-│       └── templates/classic.ts       CvTemplate = (cv, doc) => void
+│   └── pdf/                           drawing only, below cvs (the route is in cvs/)
+│       ├── pdf.module.ts              the PDF_FONTS token: assets/fonts read once per process
+│       ├── fonts.ts                   readCvFonts: Liberation Sans Regular / Bold as bytes
+│       ├── cv-template.ts             CvTemplate = (cv, doc) => void; the font names
+│       ├── render-cv-pdf.ts           pure: CvData + language + fonts → Buffer (A4, 50 pt)
+│       ├── content-disposition.ts     pure: title → attachment; filename (ASCII) + filename*
+│       └── templates/classic.ts       the product's layout (root architecture §10)
 └── test/                              e2e (supertest)
     ├── global-setup.ts                once per run: cv_test exists, migrated, test queue keys gone
     ├── setup.ts                       before every test: truncate all tables
@@ -458,7 +461,14 @@ passwords, the cookie and authorization headers (redacted).
 embedded Liberation Sans Regular/Bold from `assets/fonts/` (Cyrillic), real text ⇒ selectable. The layout is the
 product's (root architecture §10); section headings come from `CV_LANGUAGES[cv.language]`.
 Contacts first, then the blocks in `data.sectionOrder`. Empty fields/blocks are skipped; pdfkit
-paginates. One template behind `type CvTemplate = (cv, doc) => void`. Filename = sanitised title.
+paginates. One template behind `type CvTemplate = (cv, doc) => void`. Filename = the title without
+the characters a file name can't hold; an ASCII `filename` (accents dropped, other letters left
+out, "CV" if nothing is left) plus the whole title in `filename*` when they differ. `pdf/` only
+draws: `CvsService.pdf` checks the owner and the status, and a stored draft that fails `CvData`
+is `500 DATA_CORRUPT` before anything is drawn. A bullet starts on the page its whole text fits
+(its dot with it), and a heading never ends a page alone. The fonts are Liberation Sans 2.1.5
+under the SIL OFL (`assets/fonts/LICENSE.txt`), read once into the `PDF_FONTS` token; `assets`
+ships in the image through `package.json` `files`.
 
 ## 8. Tests (priority)
 
