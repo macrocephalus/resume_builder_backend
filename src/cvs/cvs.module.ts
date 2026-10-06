@@ -9,7 +9,8 @@ import { CvsService } from './cvs.service'
 @Module({
   imports: [GenerationQueueModule, LimitsModule],
   controllers: [CvsController],
-  // exported once another module needs them (the generation processor, ticket 05)
   providers: [CvsService, CvStatusService],
+  // the generation processor loads its CV and moves its status
+  exports: [CvsService, CvStatusService],
 })
 export class CvsModule {}

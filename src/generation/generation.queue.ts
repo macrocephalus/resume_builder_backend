@@ -1,5 +1,12 @@
 import type { DefaultJobOptions } from 'bullmq'
+import { DRAFT_AGENT_LIMITS } from '../agents/draft/draft.agent'
 import { GENERATION } from '../config/limits'
+
+/**
+ * How long a worker holds a job before BullMQ thinks it stalled: longer than an attempt may run,
+ * so a slow attempt is never run twice at once.
+ */
+export const GENERATION_LOCK_MS = DRAFT_AGENT_LIMITS.totalMs + 30_000
 
 /** Injection token for the BullMQ `Queue<GenerationJobData>` of generation jobs. */
 export const GENERATION_QUEUE = Symbol('GENERATION_QUEUE')

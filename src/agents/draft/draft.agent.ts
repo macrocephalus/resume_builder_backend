@@ -1,0 +1,90 @@
+import type { GenerationStage } from '@cv/shared'
+import {
+  type LanguageModel,
+  type LanguageModelUsage,
+  type SystemModelMessage,
+  ToolLoopAgent,
+  type UserModelMessage,
+  isStepCount,
+} from 'ai'
+import { type PromptInput, buildPrompt } from '../prompt/prompt-builder'
+import type { DraftSubmission } from './draft-submission.schema'
+import { stopWhenAccepted } from './stop-when-accepted'
+import { SUBMIT_DRAFT, createSubmitDraftTool, verdictOf } from './tools/submit-draft.tool'
+
+/** The bounds of one attempt (backend architecture §3). */
+export const DRAFT_AGENT_LIMITS = {
+  steps: 3,
+  stepMs: 120_000,
+  /** The BullMQ lock lasts longer than this. */
+  totalMs: 300_000,
+  /** Retries of one step by the SDK (a short 529 on step 2 keeps step 1). */
+  maxRetries: 2,
+  maxOutputTokens: 16_000,
+} as const
+
+/** Anthropic prompt caching: a breakpoint where it is set, and automatic for the whole request. */
+const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const
+
+export type DraftRun = {
+  /** The last schema-valid `submit_draft` input of any step; `null` when there was none. */
+  submission: DraftSubmission | null
+  steps: number
+  usage: LanguageModelUsage
+}
+
+/** Progress for the UI. Hook errors are swallowed by the SDK, so the callback logs its own. */
+export type OnStage = (stage: GenerationStage) => Promise<void>
+
+/**
+ * One attempt of the DraftAgent: a `ToolLoopAgent` with the single tool `submit_draft`, built
+ * per attempt (ADR 0003). Ends on an accepted submission, after 3 steps or on a step without a
+ * tool call. Throws what the SDK throws (API errors, timeouts); the caller classifies them.
+ */
+export const runDraftAgent = async (
+  model: LanguageModel,
+  input: PromptInput,
+  onStage: OnStage,
+): Promise<DraftRun> => {
+  const { instructions, message } = buildPrompt(input)
+  const system: SystemModelMessage = {
+    role: 'system',
+    content: instructions,
+    providerOptions: CACHE,
+  }
+  const user: UserModelMessage = { role: 'user', content: message, providerOptions: CACHE }
+
+  const agent = new ToolLoopAgent({
+    model,
+    instructions: system,
+    tools: { [SUBMIT_DRAFT]: createSubmitDraftTool({ source: input.source, facts: input.facts }) },
+    // the model rejects forced tool use; the instructions require the tool instead
+    toolChoice: 'auto',
+    stopWhen: [stopWhenAccepted, isStepCount(DRAFT_AGENT_LIMITS.steps)],
+    timeout: { stepMs: DRAFT_AGENT_LIMITS.stepMs, totalMs: DRAFT_AGENT_LIMITS.totalMs },
+    maxRetries: DRAFT_AGENT_LIMITS.maxRetries,
+    maxOutputTokens: DRAFT_AGENT_LIMITS.maxOutputTokens,
+    providerOptions: CACHE,
+    onStepStart: async ({ stepNumber }) => {
+      if (stepNumber === 0) await onStage('drafting')
+    },
+    onToolExecutionStart: async () => {
+      await onStage('verifying')
+    },
+    onStepEnd: async ({ toolResults }) => {
+      if (toolResults.some((result) => verdictOf(result.output) === false)) {
+        await onStage('revising')
+      }
+    },
+  })
+
+  const result = await agent.generate({ messages: [user] })
+  const submissions = result.steps
+    .flatMap((step) => step.staticToolCalls)
+    .filter((call) => call.toolName === SUBMIT_DRAFT)
+  return {
+    submission: submissions.at(-1)?.input ?? null,
+    steps: result.steps.length,
+    usage: result.totalUsage,
+  }
+}

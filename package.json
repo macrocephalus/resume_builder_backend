@@ -23,12 +23,14 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.72",
     "@cv/shared": "workspace:*",
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/jwt": "^12.0.2",
     "@nestjs/platform-express": "^11.1.0",
     "@nestjs/throttler": "^6.7.1",
+    "ai": "^7.0.128",
     "argon2": "^0.45.1",
     "bullmq": "^5.81.5",
     "cookie-parser": "^1.4.7",
