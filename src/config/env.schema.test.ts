@@ -8,6 +8,12 @@ const complete = {
 }
 
 describe('parseEnv', () => {
+  it('needs only the API key: the URLs default to the compose services on the host', () => {
+    const env = parseEnv({ ANTHROPIC_API_KEY: 'sk-ant-test' })
+    expect(env.DATABASE_URL).toBe('postgres://cv:cv@127.0.0.1:55432/cv')
+    expect(env.REDIS_URL).toBe('redis://127.0.0.1:56379')
+  })
+
   it('fills the defaults: queue prefix, model, concurrency, port, log level, no JWT secret', () => {
     expect(parseEnv(complete)).toEqual({
       DATABASE_URL: 'postgres://cv:cv@postgres:5432/cv',
@@ -54,9 +60,9 @@ describe('parseEnv', () => {
   it('lists every bad variable at once', () => {
     let message = ''
     try {
-      parseEnv({ DATABASE_URL: 'nope' })
+      parseEnv({ DATABASE_URL: 'nope', REDIS_URL: 'nope' })
     } catch (error) {
-      message = (error as Error).message
+      message = error instanceof Error ? error.message : String(error)
     }
     expect(message).toMatch(/DATABASE_URL/)
     expect(message).toMatch(/REDIS_URL/)

@@ -1,12 +1,22 @@
 import { z } from 'zod'
 
 /**
+ * Where compose.yaml publishes the project's own Postgres and Redis on the host (project-specific
+ * ports, so nothing installed on the machine is ever used by mistake). `pnpm dev` and the e2e
+ * tests run against these unless the environment says otherwise; in Docker, compose sets the
+ * URLs to the service names.
+ */
+export const LOCAL_DATABASE_URL = 'postgres://cv:cv@127.0.0.1:55432/cv'
+export const LOCAL_REDIS_URL = 'redis://127.0.0.1:56379'
+
+/**
  * Everything the api and the worker read from the environment. Parsed once at start; a missing
- * or malformed variable stops the process with a message that names it (`EnvError`).
+ * or malformed variable stops the process with a message that names it (`EnvError`). The only
+ * variable without a default is the one secret, `ANTHROPIC_API_KEY`.
  */
 export const envSchema = z.object({
-  DATABASE_URL: z.url(),
-  REDIS_URL: z.url(),
+  DATABASE_URL: z.url().default(LOCAL_DATABASE_URL),
+  REDIS_URL: z.url().default(LOCAL_REDIS_URL),
   /** Prefix of the BullMQ keys; the e2e tests use their own so they never meet a dev worker. */
   QUEUE_PREFIX: z.string().min(1).default('cv'),
   ANTHROPIC_API_KEY: z.string().min(1),

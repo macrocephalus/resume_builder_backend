@@ -130,7 +130,8 @@ Unit tests sit next to the file (`verify-draft.test.ts`, `prompt-builder.test.ts
 
 Scripts (`pnpm <script>` in `backend/`): `build` (`nest build`, SWC), `start` / `start:worker`
 (`node dist/main.js` / `dist/worker.js`), `dev` / `dev:worker` (watch; reads the root `.env` through
-`node --env-file-if-exists`, so `DATABASE_URL` and `REDIS_URL` for the host go there),
+`node --env-file-if-exists`; `DATABASE_URL` and `REDIS_URL` default to the compose services on the
+project's host ports 55432 / 56379, so only the key is needed),
 `typecheck` (`tsc --noEmit`), `lint` (oxlint), `format` / `format:check` (prettier), `test` (unit),
 `test:e2e` (needs the compose Postgres and Redis), `db:generate` (a migration from the schema).
 BullMQ is the 5.x line: 6.x moves the Redis client to a peer dependency and was not verified here.
@@ -390,7 +391,8 @@ Most important first; the cut order of features is in root architecture §12.
 Vitest everywhere, `supertest` for API e2e, `unplugin-swc` for decorators. The fake model lives
 only in tests (swapped in through the model factory's DI token); there is no runtime switch.
 e2e runs against Postgres and Redis from `compose.yaml` (`cv_test` database, own BullMQ prefix,
-tables truncated between tests); unit tests of pure functions need neither. `pnpm test:e2e` takes
-the host and port from `DATABASE_URL` / `REDIS_URL` when set (compose on other ports) and always
-replaces the database name with `cv_test`; when the services are down, the run stops with a message
-saying how to start them. Test files share the database, so they run one after another.
+tables truncated between tests); unit tests of pure functions need neither. `pnpm test:e2e` connects
+to the project's compose services on their host ports (`DATABASE_URL` / `REDIS_URL` override them)
+and always replaces the database name with `cv_test`; when the services are down, the run stops
+with a message saying how to start them. Test files share the database, so they run one after
+another.

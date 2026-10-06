@@ -10,9 +10,9 @@ import {
 } from './helpers/env'
 
 const START_HINT =
-  'The e2e tests need the compose Postgres and Redis: `docker compose up postgres redis` in ' +
-  'backend/. When another Postgres owns 5432, start compose with POSTGRES_PORT=… and run the ' +
-  'tests with DATABASE_URL=postgres://cv:cv@127.0.0.1:<port>/cv.'
+  "The e2e tests need the project's own Postgres and Redis from compose: " +
+  '`docker compose up postgres redis` in backend/ (or `pnpm stack:backend` from the root). ' +
+  'If you changed POSTGRES_PORT / REDIS_PORT, run the tests with the matching DATABASE_URL / REDIS_URL.'
 
 /** The URL without its password, for messages. */
 const redacted = (url: string): string => {

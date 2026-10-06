@@ -17,12 +17,13 @@ before the backend's typecheck, tests or build after a fresh clone.
 
 All from `backend/`, Node through nvm (root `CLAUDE.md`, "Environment"):
 
-- `pnpm dev` / `pnpm dev:worker` — watch mode; env from the root `.env`, which then needs
-  `DATABASE_URL=postgres://cv:cv@127.0.0.1:5432/cv` and `REDIS_URL=redis://127.0.0.1:6379` beside
-  the key (compose's ports; adjust when `POSTGRES_PORT` was changed).
+- `pnpm dev` / `pnpm dev:worker` — watch mode against the compose Postgres and Redis
+  (`docker compose up postgres redis` here). Env comes from the root `.env`; only
+  `ANTHROPIC_API_KEY` is required, `DATABASE_URL` / `REDIS_URL` default to the project's host
+  ports (root `.env.example` lists the optional overrides).
 - Checks before a commit: `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build`.
-- `pnpm test:e2e` — against the compose Postgres and Redis (`docker compose up postgres redis`
-  here; `DATABASE_URL=… pnpm test:e2e` when the ports differ). Uses the `cv_test` database only.
+- `pnpm test:e2e` — against the same compose Postgres and Redis; set `DATABASE_URL` / `REDIS_URL`
+  only if you changed the ports. Uses the `cv_test` database only.
 - `pnpm db:generate` after a schema change; commit the SQL in `drizzle/`.
 
 ## Code rules
@@ -87,8 +88,10 @@ no mocks of our own classes; the model is replaced only through the model factor
 `compose.yaml` here is the backend on its own: api, worker, postgres, redis.
 
 - `pnpm stack:backend` from the root, or `docker compose --env-file ../.env up --build` here.
-- API on `localhost:3000`; postgres and redis are published on `127.0.0.1` for `pnpm dev` on the
-  host (`POSTGRES_PORT`, `REDIS_PORT`, `API_PORT` override the ports).
+- API on `localhost:3000`; postgres and redis are published on `127.0.0.1:55432` and
+  `127.0.0.1:56379` for `pnpm dev` and `pnpm test:e2e` on the host. The ports are the project's
+  own so they never collide with a Postgres or Redis installed on the machine; `POSTGRES_PORT`,
+  `REDIS_PORT`, `API_PORT` in the root `.env` override them.
 - The api healthcheck calls `GET /api/health`; the worker starts once the api is healthy, because
   the api runs the migrations.
 
