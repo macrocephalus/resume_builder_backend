@@ -1,4 +1,11 @@
-import type { CvData, CvLanguage, CvStatus, Requirement, SourceType } from '@cv/shared'
+import type {
+  CvData,
+  CvLanguage,
+  CvStatus,
+  GenerationStage,
+  Requirement,
+  SourceType,
+} from '@cv/shared'
 import {
   type AnyPgColumn,
   index,
@@ -45,7 +52,7 @@ export const cvs = pgTable(
     facts: jsonb().$type<Fact[]>().notNull().default([]),
     status: text().$type<CvStatus>().notNull(),
     /** Generating sub-step. */
-    stage: text(),
+    stage: text().$type<GenerationStage>(),
     attempt: integer().notNull().default(1),
     maxAttempts: integer().notNull().default(3),
     /** Only when failed. */
@@ -56,8 +63,8 @@ export const cvs = pgTable(
     requirements: jsonb().$type<Requirement[]>().notNull().default([]),
     suggestedRoles: jsonb().$type<string[]>().notNull().default([]),
     verification: jsonb().$type<Verification>(),
-    /** +1 on every write of `data`; optimistic locking. */
-    version: integer().notNull().default(1),
+    /** 0 until the first draft, +1 on every write of `data`; optimistic locking. */
+    version: integer().notNull().default(0),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

@@ -62,6 +62,8 @@ export class AppExceptionFilter implements ExceptionFilter {
     const response = host.switchToHttp().getResponse<Response>()
     const known = toReply(exception)
     if (!known) this.logger.error({ err: exception }, 'unhandled error')
+    // a 500 answered on purpose (DATA_CORRUPT) is still a fault on our side
+    else if (known.status === 500) this.logger.error({ err: exception }, known.body.error.code)
     const { status, body } = known ?? INTERNAL
     response.status(status).json(body)
   }

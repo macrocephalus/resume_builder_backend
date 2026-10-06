@@ -1,12 +1,28 @@
 /**
- * The numbers the server is tuned by, in one place: timeouts, the session, throttles now;
- * generations per hour, active CVs per user and question caps as their tickets land.
+ * The numbers the server is tuned by, in one place: timeouts, generation, the session, throttles
+ * now; generations per hour and question caps as their tickets land.
  */
 export const TIMEOUTS = {
   /** A Postgres connection that cannot be made fails fast, so `/api/health` answers 503. */
   databaseConnectMs: 5_000,
   /** The worker gives up on Redis at start after this and exits, so compose restarts it. */
   redisStartMs: 10_000,
+  /**
+   * `POST /api/cvs` stops waiting for the queue after this and still answers 202: the job row is
+   * committed, and the worker's recovery puts a lost job back on the queue.
+   */
+  enqueueMs: 2_000,
+} as const
+
+export const GENERATION = {
+  /** CVs of one user in queued / generating / retrying at once; another one is 429. */
+  activePerUser: 2,
+  /** Attempts of one generation job (BullMQ `attempts`, `cvs.max_attempts`). */
+  attempts: 3,
+  /** First delay between attempts; BullMQ doubles it each time. */
+  backoffMs: 5_000,
+  /** How long a failed BullMQ job stays in Redis for debugging; Postgres keeps the outcome. */
+  failedJobKeepSeconds: 24 * 60 * 60,
 } as const
 
 export const SESSION = {

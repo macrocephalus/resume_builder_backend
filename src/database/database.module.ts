@@ -1,5 +1,6 @@
 import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common'
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { drizzle, type NodePgDatabase, type NodePgQueryResultHKT } from 'drizzle-orm/node-postgres'
+import type { PgDatabase } from 'drizzle-orm/pg-core'
 import { Pool } from 'pg'
 import { ENV } from '../config/config.module'
 import type { Env } from '../config/env.schema'
@@ -9,6 +10,12 @@ import * as schema from './schema'
 /** Injection token for the Drizzle database (`Database`). */
 export const DATABASE = Symbol('DATABASE')
 export type Database = NodePgDatabase<typeof schema>
+
+/**
+ * The database or a transaction on it. A function that may run inside a caller's transaction
+ * (writes that must agree) takes this and defaults to the database.
+ */
+export type Executor = PgDatabase<NodePgQueryResultHKT, typeof schema>
 
 const PG_POOL = Symbol('PG_POOL')
 

@@ -1,0 +1,1 @@
+ALTER TABLE "cvs" ALTER COLUMN "version" SET DEFAULT 0;
