@@ -29,6 +29,8 @@ const requestId = (req: IncomingMessage, res: ServerResponse): string => {
     LoggerModule.forRootAsync({
       inject: [ENV],
       useFactory: (env: Env) => ({
+        // fields added during a request (the user id from the auth guard) reach its response line
+        assignResponse: true,
         pinoHttp: {
           level: env.LOG_LEVEL,
           genReqId: requestId,
