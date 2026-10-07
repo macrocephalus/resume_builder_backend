@@ -9,7 +9,8 @@ import {
 } from '../../../test/helpers/model'
 import type { PromptInput } from '../prompt/prompt-builder'
 import type { DraftSubmission } from './draft-submission.schema'
-import { DRAFT_AGENT_LIMITS, type DraftStep, runDraftAgent } from './draft.agent'
+import { type DraftStep, runDraftAgent } from './draft.agent'
+import { DRAFT_AGENT_LIMITS } from './draft.limits'
 
 const input: PromptInput = {
   source: SOURCE_TEXT,

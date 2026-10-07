@@ -11,6 +11,7 @@ import {
 } from 'ai'
 import { type PromptInput, buildPrompt } from '../prompt/prompt-builder'
 import type { DraftSubmission } from './draft-submission.schema'
+import { DRAFT_AGENT_LIMITS } from './draft.limits'
 import { stopWhenAccepted } from './stop-when-accepted'
 import {
   SUBMIT_DRAFT,
@@ -18,16 +19,6 @@ import {
   createSubmitDraftTool,
   verdictOf,
 } from './tools/submit-draft.tool'
-
-/** The bounds of one attempt (backend architecture §3). */
-export const DRAFT_AGENT_LIMITS = {
-  steps: 3,
-  stepMs: 120_000,
-  totalMs: 300_000,
-  /** Retries of one step by the SDK (a short 529 on step 2 keeps step 1). */
-  maxRetries: 2,
-  maxOutputTokens: 16_000,
-} as const
 
 /** How long one step and one attempt may take; tests shorten them. */
 export type DraftAgentTimeouts = { stepMs: number; totalMs: number }

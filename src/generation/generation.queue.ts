@@ -1,5 +1,6 @@
 import type { DefaultJobOptions } from 'bullmq'
-import { DRAFT_AGENT_LIMITS, type DraftAgentTimeouts } from '../agents/draft/draft.agent'
+import type { DraftAgentTimeouts } from '../agents/draft/draft.agent'
+import { DRAFT_AGENT_LIMITS } from '../agents/draft/draft.limits'
 import { GENERATION } from '../config/limits'
 
 /** Injection token for the BullMQ `Queue<GenerationJobData>` of generation jobs. */
