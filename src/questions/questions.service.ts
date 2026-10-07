@@ -6,12 +6,13 @@ import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../common/errors/app-error'
 import { CONTENT } from '../common/logging/logger-options'
 import { CvStatusService } from '../cvs/cv-status.service'
-import { requireDraft, toQuestion } from '../cvs/cv.mapper'
+import { type CvRow, requireDraft, toQuestion } from '../cvs/cv.mapper'
 import { CvsService } from '../cvs/cvs.service'
-import { DATABASE, type Database } from '../database/database.module'
+import { DATABASE, type Database, type Executor } from '../database/database.module'
 import { cvQuestions, cvs } from '../database/schema'
+import { AnswerWordingService } from './answer-wording.service'
 import { applyReplies } from './apply-replies'
-import { checkReplies } from './check-replies'
+import { type CheckedReply, checkReplies } from './check-replies'
 
 /** Replies to questions (root `docs/architecture.md` §6.5, `docs/api.md` "Questions"). */
 @Injectable()
@@ -20,41 +21,26 @@ export class QuestionsService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly cvs: CvsService,
     private readonly statuses: CvStatusService,
+    private readonly wording: AnswerWordingService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QuestionsService.name)
   }
 
   /**
-   * Applies a batch of replies, all or none (`checkReplies`). One transaction: the draft and the
-   * facts as `applyReplies` leaves them, each question `answered` or `skipped`, one
-   * `version + 1`, `ready` once no question is left open. Answers the CV as the batch left it.
+   * Applies a batch of replies, all or none (`checkReplies`). The batch is checked once before
+   * answer wording, so an invalid batch costs no model call, and again under the lock. One
+   * transaction: the draft and the facts as `applyReplies` leaves them, each question `answered`
+   * or `skipped`, one `version + 1`, `ready` once no question is left open. Answers the CV as the
+   * batch left it.
    */
   async reply(userId: string, cvId: string, replies: readonly Reply[]): Promise<Cv> {
+    const before = await this.cvs.getOwned(cvId, userId)
+    const worded = await this.wording.word(before, await this.checked(before, replies, this.db))
     const updated = await this.db.transaction(async (tx) => {
       const cv = await this.cvs.lockOwned(cvId, userId, tx)
-      if (cv.status !== 'needs_input') {
-        throw new AppError(409, 'INVALID_STATE', 'This CV is not waiting for answers.')
-      }
-      const rows = await tx
-        .select()
-        .from(cvQuestions)
-        .where(
-          and(
-            eq(cvQuestions.cvId, cv.id),
-            inArray(
-              cvQuestions.id,
-              replies.map((reply) => reply.questionId),
-            ),
-          ),
-        )
-      const draft = requireDraft(cv)
-      const checked = checkReplies(
-        replies,
-        new Map(rows.map((row) => [row.id, toQuestion(row)])),
-        draft,
-      )
-      const { data, facts } = applyReplies(draft, cv.facts, checked, randomUUID)
+      const checked = await this.checked(cv, replies, tx)
+      const { data, facts } = applyReplies(requireDraft(cv), cv.facts, checked, worded, randomUUID)
       for (const { question, answer } of checked) {
         await tx
           .update(cvQuestions)
@@ -90,5 +76,33 @@ export class QuestionsService {
       'replies applied',
     )
     return updated
+  }
+
+  /** The batch checked against the CV and its questions as `executor` reads them. */
+  private async checked(
+    cv: CvRow,
+    replies: readonly Reply[],
+    executor: Executor,
+  ): Promise<CheckedReply[]> {
+    if (cv.status !== 'needs_input') {
+      throw new AppError(409, 'INVALID_STATE', 'This CV is not waiting for answers.')
+    }
+    const rows = await executor
+      .select()
+      .from(cvQuestions)
+      .where(
+        and(
+          eq(cvQuestions.cvId, cv.id),
+          inArray(
+            cvQuestions.id,
+            replies.map((reply) => reply.questionId),
+          ),
+        ),
+      )
+    return checkReplies(
+      replies,
+      new Map(rows.map((row) => [row.id, toQuestion(row)])),
+      requireDraft(cv),
+    )
   }
 }

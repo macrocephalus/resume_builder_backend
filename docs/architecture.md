@@ -126,11 +126,14 @@ backend/
 │   │   └── queue-recovery.service.ts  on start + every 60 s: lost jobs back on the queue
 │   ├── questions/
 │   │   ├── questions.controller.ts    replies: a batch of answers and skips
-│   │   ├── questions.service.ts       lockOwned → checkReplies → applyReplies → questions closed,
-│   │   │                              one version + 1 → CAS to ready when none is open
+│   │   ├── questions.service.ts       checkReplies → answer wording → lockOwned → checkReplies →
+│   │   │                              applyReplies → questions closed, one version + 1 → CAS to
+│   │   │                              ready when none is open
 │   │   ├── check-replies.ts           pure: every reply against its question and the draft, all
 │   │   │                              or none; 404 / 409 at the first, 400s keyed by reply
 │   │   ├── apply-replies.ts           pure: a checked batch → the draft and the facts after it
+│   │   ├── answer-wording.service.ts  one fast-model call for a batch; as written when it fails
+│   │   ├── wording-request.ts         pure: which answers are worded; which results are accepted
 │   │   ├── fact-of.ts                 pure: an answer → the { question, answer } kept in facts
 │   │   ├── new-question.ts            a question before it is stored; targetKey
 │   │   ├── build-auto-questions.ts    pure: findMissing + autoQuestionText
@@ -138,14 +141,20 @@ backend/
 │   │   ├── verifier-wording.ts        their texts per CV language
 │   │   └── select-questions.ts        pure: priority and caps (§3)
 │   ├── agents/                        LLM layer — knows nothing about DB, HTTP or queue
-│   │   ├── llm.ts                     the LANGUAGE_MODEL token + createLanguageModel; bound in
-│   │   │                              GenerationModule, to MockLanguageModelV4 in tests
+│   │   ├── llm.ts                     the LANGUAGE_MODEL and FAST_LANGUAGE_MODEL tokens +
+│   │   │                              createLanguageModel; bound in GenerationModule and
+│   │   │                              QuestionsModule, to MockLanguageModelV4 in tests
+│   │   ├── answer/
+│   │   │   ├── answer-wording.schema.ts  ANSWER_WORDING_LIMITS, the request, the output schema
+│   │   │   └── word-answers.ts        one generateText with Output.object, no tools (§3a)
 │   │   ├── prompt/
 │   │   │   ├── prompt-builder.ts      → { instructions, message }: static first (§3);
 │   │   │   │                          PROMPT_VERSION (hash of the static part)
 │   │   │   ├── prompt-fact.ts
 │   │   │   ├── escape-tags.ts         & < > as XML entities, so data can't close a tag
+│   │   │   ├── answer-wording-prompt.ts  buildWordingPrompt: the rules, then each answer escaped
 │   │   │   └── system/
+│   │   │       ├── answer-wording.system.ts  the rules of answer wording
 │   │   │       ├── draft.system.ts    the rules
 │   │   │       └── draft.example.ts   a static submit_draft example
 │   │   ├── draft/
@@ -157,6 +166,8 @@ backend/
 │   │   │       └── submit-draft.tool.ts   createSubmitDraftTool({ source, facts }): verifyDraft
 │   │   └── verify/
 │   │       ├── verify-draft.ts        pure: problems by the rules of §4
+│   │       ├── verify-wording.ts      pure: numbers and technologies a worded answer may not add
+│   │       ├── skill-like.ts          pure: the words that look like technology names
 │   │       ├── sanitise.ts            pure: remove/clear what failed → claims, fields, skills
 │   │       └── normalise.ts           case, whitespace, quotes, dashes, phone digits
 │   └── pdf/                           drawing only, below cvs (the route is in cvs/)
@@ -350,6 +361,23 @@ is never replaced; a model question about the whole skills block is dropped when
 `QUESTIONS` in `config/limits.ts`. The verifier's questions are worded in the CV language by
 `questions/verifier-wording.ts` (the auto ones by `@cv/shared`).
 
+### 3a. Answer wording
+
+A free-text answer (`text`, or the "Other" of a `choice`) to the bullets of an experience or
+project item is turned into 1–3 bullets in the CV language by **one `generateText` call with
+`Output.object`** on the fast model (`FAST_LANGUAGE_MODEL`, `ANTHROPIC_FAST_MODEL`, default
+`claude-haiku-4-5`) — no tools, no loop (root [adr/0002](../../docs/adr/0002-answer-wording-inside-the-request.md)).
+`QuestionsService.reply` checks the batch, words its answers (`AnswerWordingService`), then checks
+it again under the lock and applies it; the call runs outside the transaction, so no row lock is
+held while the model answers. One call per batch; it sees the question, the answer, the CV
+language, the target role and the item (title, company, bullets), never the source. The model
+returns per answer id its bullets, `[]` for an answer with nothing for the CV. A result is used
+only when `unbackedInWording` finds nothing: every number in the answer, every technology-like
+word in the answer or the source. A timeout (`ANSWER_WORDING_LIMITS.timeoutMs`, 15 s, the e2e
+tests shorten it), an API error, an output that fails the schema, a missing id or an unbacked
+word → that answer (or the batch) goes in as written (`applyAnswer`), logged at `warn`. Facts and
+`question.answer` keep the raw answer.
+
 ## 4. Verification — keeping the AI from inventing facts
 
 Every **claim** about the person in the CV must rest on `source_text` or on `facts` (the user's
@@ -484,7 +512,8 @@ the variables; how to switch them for each way of running: `README.md`, "Logging
 - `error`: what needs a look — an unhandled error (500), `DATA_CORRUPT`, Redis or the queue
   failing, a failure not recorded. `warn`: what went wrong and was handled — a failed attempt
   (with its error code and whether it retries), a PDF pdf.js could not parse, a lost job put
-  back, a stage not written.
+  back, a stage not written, answers not worded (the call failed, or a result was missing or
+  unbacked: inserted as written).
 - `info`: what a user or the worker did — signed up, logged in, PDF read (pages, chars), CV
   created (language, source type and size, facts, parent), retried, edited (version),
   deleted, a batch of replies applied (how many answered and skipped, where the CV is now); an

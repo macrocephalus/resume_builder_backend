@@ -7,6 +7,12 @@ import type { LanguageModel } from 'ai'
  */
 export const LANGUAGE_MODEL = Symbol('LANGUAGE_MODEL')
 
+/**
+ * Injection token for the fast `LanguageModel` that words answers in the api. Bound like
+ * `LANGUAGE_MODEL`: Anthropic in the app, a scripted model in the tests.
+ */
+export const FAST_LANGUAGE_MODEL = Symbol('FAST_LANGUAGE_MODEL')
+
 export const createLanguageModel = ({
   apiKey,
   modelId,

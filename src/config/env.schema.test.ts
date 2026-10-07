@@ -14,13 +14,14 @@ describe('parseEnv', () => {
     expect(env.REDIS_URL).toBe('redis://127.0.0.1:56379')
   })
 
-  it('fills the defaults: queue prefix, model, concurrency, port, plain info logs, no JWT secret, no API docs', () => {
+  it('fills the defaults: queue prefix, models, concurrency, port, plain info logs, no JWT secret, no API docs', () => {
     expect(parseEnv(complete)).toEqual({
       DATABASE_URL: 'postgres://cv:cv@postgres:5432/cv',
       REDIS_URL: 'redis://redis:6379',
       QUEUE_PREFIX: 'cv',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       ANTHROPIC_MODEL: 'claude-sonnet-5-5',
+      ANTHROPIC_FAST_MODEL: 'claude-haiku-4-5',
       WORKER_CONCURRENCY: 8,
       PORT: 3000,
       LOG_LEVEL: 'info',
