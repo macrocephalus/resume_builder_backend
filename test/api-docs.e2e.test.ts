@@ -19,8 +19,7 @@ const ENDPOINTS = [
   ['delete', '/api/cvs/{id}', 'session'],
   ['post', '/api/cvs/{id}/retry', 'session'],
   ['get', '/api/cvs/{id}/pdf', 'session'],
-  ['post', '/api/cvs/{id}/questions/{questionId}/answer', 'session'],
-  ['post', '/api/cvs/{id}/questions/{questionId}/skip', 'session'],
+  ['post', '/api/cvs/{id}/replies', 'session'],
 ] as const
 
 type Operation = {

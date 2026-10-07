@@ -62,9 +62,13 @@ describe('POST /api/cvs with fromCvId (a CV for another role)', () => {
   const answeredParent = async () => {
     const parent = await needsInput(app, PHONE)
     const response = await request(app.server())
-      .post(`/api/cvs/${parent.id}/questions/${parent.questionIds[0]}/answer`)
+      .post(`/api/cvs/${parent.id}/replies`)
       .set('Cookie', parent.cookie)
-      .send({ kind: 'text', value: PHONE_ANSWER })
+      .send({
+        replies: [
+          { questionId: parent.questionIds[0], answer: { kind: 'text', value: PHONE_ANSWER } },
+        ],
+      })
     expect(response.status).toBe(200)
     return parent
   }

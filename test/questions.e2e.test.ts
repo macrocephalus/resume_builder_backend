@@ -33,7 +33,7 @@ const expectError = (response: request.Response, status: number, code: string) =
   expect(errorResponseSchema.parse(response.body).error.code).toBe(code)
 }
 
-describe('answering and skipping questions', () => {
+describe('replying to questions', () => {
   let app: TestApp
   let db: Database
   let worker: TestWorker | null = null
@@ -52,16 +52,19 @@ describe('answering and skipping questions', () => {
 
   const needsInput = (...questions: NewQuestion[]) => needsInputFor(app, ...questions)
 
-  const answer = (cookie: string, cvId: string, questionId: string | undefined, body: object) =>
-    request(app.server())
-      .post(`/api/cvs/${cvId}/questions/${questionId}/answer`)
-      .set('Cookie', cookie)
-      .send(body)
+  /** A reply as sent, loose enough to send what the server must refuse. */
+  type RawReply = { questionId: string | undefined; answer: object | null }
 
+  const reply = (cookie: string, cvId: string, ...replies: RawReply[]) =>
+    request(app.server()).post(`/api/cvs/${cvId}/replies`).set('Cookie', cookie).send({ replies })
+
+  /** One answer, as a batch of one. */
+  const answer = (cookie: string, cvId: string, questionId: string | undefined, body: object) =>
+    reply(cookie, cvId, { questionId, answer: body })
+
+  /** One skip, as a batch of one. */
   const skip = (cookie: string, cvId: string, questionId: string | undefined) =>
-    request(app.server())
-      .post(`/api/cvs/${cvId}/questions/${questionId}/skip`)
-      .set('Cookie', cookie)
+    reply(cookie, cvId, { questionId, answer: null })
 
   const cvOf = (response: request.Response) => {
     expect(response.status).toBe(200)
@@ -71,7 +74,7 @@ describe('answering and skipping questions', () => {
   const factsOf = async (id: string) =>
     (await db.select({ facts: cvs.facts }).from(cvs).where(eq(cvs.id, id)))[0]?.facts
 
-  describe('POST …/answer', () => {
+  describe('POST …/replies: one answer', () => {
     it('writes a text answer into its field, closes the question and keeps the answer as a fact', async () => {
       const { cookie, id, questionIds } = await needsInput(PHONE, SKILLS)
 
@@ -224,11 +227,10 @@ describe('answering and skipping questions', () => {
       const other = await needsInput(PHONE)
       const body = { kind: 'text', value: '+380 67 123' }
       expectError(await answer(cookie, id, randomUUID(), body), 404, 'NOT_FOUND')
-      expectError(await answer(cookie, id, 'not-a-uuid', body), 404, 'NOT_FOUND')
       expectError(await answer(cookie, id, other.questionIds[0], body), 404, 'NOT_FOUND')
     })
 
-    it('applies answers sent at once one after another, none lost', async () => {
+    it('applies batches sent at once one after another, none lost', async () => {
       const skills = ['Go', 'Rust', 'Kafka', 'Redis', 'Docker', 'gRPC']
       const { cookie, id, questionIds } = await needsInput(...skills.map(() => SKILLS), PHONE)
       const responses = await Promise.all(
@@ -244,26 +246,26 @@ describe('answering and skipping questions', () => {
     })
   })
 
-  describe('POST …/skip', () => {
+  describe('POST …/replies: one skip', () => {
     it('closes the question and changes nothing in the draft; the last one makes the CV ready', async () => {
       const { cookie, id, questionIds } = await needsInput(PHONE, MULTI)
 
       const first = cvOf(await skip(cookie, id, questionIds[0]))
-      expect(first).toMatchObject({ status: 'needs_input', version: 1, data: draft() })
+      expect(first).toMatchObject({ status: 'needs_input', version: 2, data: draft() })
       expect(first.questions.find((q) => q.id === questionIds[0])).toMatchObject({
         status: 'skipped',
         answer: null,
       })
 
       const last = cvOf(await skip(cookie, id, questionIds[1]))
-      expect(last).toMatchObject({ status: 'ready', version: 1, data: draft() })
+      expect(last).toMatchObject({ status: 'ready', version: 3, data: draft() })
       expect(await factsOf(id)).toEqual([])
     })
 
-    it('is 409 INVALID_STATE for a confirm, a closed question or a CV not waiting for answers', async () => {
+    it('is 400 for a confirm, 409 for a closed question or a CV not waiting for answers', async () => {
       const { cookie, id, questionIds } = await needsInput(CONFIRM, PHONE, SKILLS)
       const [confirm, phone, skills] = questionIds
-      expectError(await skip(cookie, id, confirm), 409, 'INVALID_STATE')
+      expectError(await skip(cookie, id, confirm), 400, 'VALIDATION_ERROR')
       cvOf(await skip(cookie, id, phone))
       expectError(await skip(cookie, id, phone), 409, 'INVALID_STATE')
       await db.update(cvs).set({ status: 'ready' }).where(eq(cvs.id, id))
@@ -273,6 +275,139 @@ describe('answering and skipping questions', () => {
     it('is 404 NOT_FOUND for an unknown question', async () => {
       const { cookie, id } = await needsInput(PHONE)
       expectError(await skip(cookie, id, randomUUID()), 404, 'NOT_FOUND')
+    })
+  })
+
+  describe('POST …/replies: a batch', () => {
+    it('applies answers and skips together in one version, in their order, and makes the CV ready', async () => {
+      const { cookie, id, questionIds } = await needsInput(PHONE, SKILLS, MULTI, CONFIRM)
+      const [phone, skills, multi, confirm] = questionIds
+
+      const cv = cvOf(
+        await reply(
+          cookie,
+          id,
+          { questionId: skills, answer: { kind: 'text', value: 'Go, Kafka' } },
+          { questionId: multi, answer: null },
+          { questionId: confirm, answer: { kind: 'confirm', value: true } },
+          { questionId: phone, answer: { kind: 'text', value: '+380 67 123 45 67' } },
+        ),
+      )
+      expect(cv).toMatchObject({ status: 'ready', version: 2 })
+      expect(cv.data?.skills).toEqual(['PostgreSQL', 'Go', 'Kafka'])
+      expect(cv.data?.contacts.phone).toBe('+380 67 123 45 67')
+      expect(cv.data?.experience[0]?.bullets).toEqual(['Built the payments API', CLAIM])
+      expect(cv.questions.map((q) => [q.id, q.status])).toEqual([
+        [phone, 'answered'],
+        [skills, 'answered'],
+        [multi, 'skipped'],
+        [confirm, 'answered'],
+      ])
+      expect((await factsOf(id))?.map((fact) => fact.answer)).toEqual([
+        'Go, Kafka',
+        CLAIM,
+        '+380 67 123 45 67',
+      ])
+    })
+
+    it('moves the version once even when the batch only skips', async () => {
+      const { cookie, id, questionIds } = await needsInput(PHONE, SKILLS)
+      const cv = cvOf(
+        await reply(
+          cookie,
+          id,
+          { questionId: questionIds[0], answer: null },
+          { questionId: questionIds[1], answer: null },
+        ),
+      )
+      expect(cv).toMatchObject({ status: 'ready', version: 2, data: draft() })
+    })
+
+    it('applies nothing when one reply of the batch is refused', async () => {
+      const { cookie, id, questionIds } = await needsInput(PHONE, SKILLS, CONFIRM)
+      const [phone, skills, confirm] = questionIds
+      const good = { questionId: phone, answer: { kind: 'text', value: '+380 67 123' } }
+
+      cvOf(await skip(cookie, id, skills))
+      expectError(
+        await reply(cookie, id, good, { questionId: skills, answer: null }),
+        409,
+        'INVALID_STATE',
+      )
+      const skippedConfirm = await reply(cookie, id, good, { questionId: confirm, answer: null })
+      expectError(skippedConfirm, 400, 'VALIDATION_ERROR')
+      expect(
+        Object.keys(errorResponseSchema.parse(skippedConfirm.body).error.details?.fields ?? {}),
+      ).toEqual(['replies.1.answer'])
+      expectError(
+        await reply(cookie, id, good, { questionId: randomUUID(), answer: null }),
+        404,
+        'NOT_FOUND',
+      )
+      const invalid = await reply(cookie, id, good, {
+        questionId: confirm,
+        answer: { kind: 'confirm', value: 'yes' },
+      })
+      expectError(invalid, 400, 'VALIDATION_ERROR')
+      expect(
+        Object.keys(errorResponseSchema.parse(invalid.body).error.details?.fields ?? {}),
+      ).toEqual(['replies.1.answer.value'])
+
+      const [row] = await db.select().from(cvs).where(eq(cvs.id, id))
+      expect(row).toMatchObject({ version: 2, facts: [], status: 'needs_input' })
+      expect(row?.data?.contacts.phone).toBeNull()
+    })
+
+    it('names the reply whose answer does not fit its question', async () => {
+      const { cookie, id, questionIds } = await needsInput(PHONE, MULTI)
+      const response = await reply(
+        cookie,
+        id,
+        { questionId: questionIds[0], answer: { kind: 'text', value: '+380 67 123' } },
+        { questionId: questionIds[1], answer: { kind: 'multi', values: ['Go'] } },
+      )
+      expectError(response, 400, 'VALIDATION_ERROR')
+      expect(
+        Object.keys(errorResponseSchema.parse(response.body).error.details?.fields ?? {}),
+      ).toEqual([expect.stringMatching(/^replies\.1\.answer/)])
+    })
+
+    it('is 400 VALIDATION_ERROR for no replies, too many, a question twice or a bad id', async () => {
+      const { cookie, id, questionIds } = await needsInput(PHONE)
+      const skipPhone = { questionId: questionIds[0], answer: null }
+      expectError(await reply(cookie, id), 400, 'VALIDATION_ERROR')
+      expectError(
+        await reply(
+          cookie,
+          id,
+          ...Array.from({ length: 13 }, () => ({ questionId: randomUUID(), answer: null })),
+        ),
+        400,
+        'VALIDATION_ERROR',
+      )
+      expectError(await reply(cookie, id, skipPhone, skipPhone), 400, 'VALIDATION_ERROR')
+      expectError(
+        await reply(cookie, id, { questionId: 'not-a-uuid', answer: null }),
+        400,
+        'VALIDATION_ERROR',
+      )
+    })
+
+    it("is 404 NOT_FOUND for another user's CV", async () => {
+      const { id, questionIds } = await needsInput(PHONE)
+      const other = await needsInput(PHONE)
+      expectError(await skip(other.cookie, id, questionIds[0]), 404, 'NOT_FOUND')
+    })
+
+    it('is gone at the old per-question paths', async () => {
+      const { cookie, id, questionIds } = await needsInput(PHONE)
+      for (const path of ['answer', 'skip']) {
+        const response = await request(app.server())
+          .post(`/api/cvs/${id}/questions/${questionIds[0]}/${path}`)
+          .set('Cookie', cookie)
+          .send({ kind: 'text', value: 'x' })
+        expect(response.status).toBe(404)
+      }
     })
   })
 

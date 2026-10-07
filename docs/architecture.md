@@ -94,7 +94,7 @@ backend/
 │   │   │                          or fromCvId (the parent locked, with a draft: its source and
 │   │   │                          facts are copied, parent_cv_id set)
 │   │   ├── cv-status.service.ts   the ONLY writer of cvs.status (canTransition + CAS);
-│   │   │                          readyIfNoneOpen after an answer, a skip or an edit
+│   │   │                          readyIfNoneOpen after a batch of replies or an edit
 │   │   ├── from-statuses.ts       pure: the statuses a move to X is allowed from
 │   │   ├── cv.mapper.ts           row → Cv / CvSummary / CvStatusInfo (computeMatch); a draft
 │   │   │                          that fails CvData → 500 DATA_CORRUPT
@@ -125,9 +125,12 @@ backend/
 │   │   ├── classify-error.ts      pure: SDK error → { code, retryable } (§5)
 │   │   └── queue-recovery.service.ts  on start + every 60 s: lost jobs back on the queue
 │   ├── questions/
-│   │   ├── questions.controller.ts    answer, skip
-│   │   ├── questions.service.ts       lockOwned → answerSchemaFor → applyAnswer (@cv/shared) →
-│   │   │                              fact → CAS to ready when none is open
+│   │   ├── questions.controller.ts    replies: a batch of answers and skips
+│   │   ├── questions.service.ts       lockOwned → checkReplies → applyReplies → questions closed,
+│   │   │                              one version + 1 → CAS to ready when none is open
+│   │   ├── check-replies.ts           pure: every reply against its question and the draft, all
+│   │   │                              or none; 404 / 409 at the first, 400s keyed by reply
+│   │   ├── apply-replies.ts           pure: a checked batch → the draft and the facts after it
 │   │   ├── fact-of.ts                 pure: an answer → the { question, answer } kept in facts
 │   │   ├── new-question.ts            a question before it is stored; targetKey
 │   │   ├── build-auto-questions.ts    pure: findMissing + autoQuestionText
@@ -457,10 +460,9 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
   storage) and pdf.js reads only its text layer; the minimum of 50 characters counts visible
   ones, so a scan with stray whitespace still gets `422`.
 - Known simplifications (README): JWT can't be revoked before expiry; signup reveals that an email
-  is taken; answers have no hourly limit (with the AnswerAgent cut, an answer makes no model
-  call); pdf.js parses an upload on the api's event loop, so a crafted 5 MB PDF can slow other
-  requests for a moment (bounded by the size, page and per-user limits; a worker thread would
-  remove it).
+  is taken; answers have no hourly limit; pdf.js parses an upload on the api's event loop, so a
+  crafted 5 MB PDF can slow other requests for a moment (bounded by the size, page and per-user
+  limits; a worker thread would remove it).
 
 ## 6a. Logs
 
@@ -485,9 +487,9 @@ the variables; how to switch them for each way of running: `README.md`, "Logging
   back, a stage not written.
 - `info`: what a user or the worker did — signed up, logged in, PDF read (pages, chars), CV
   created (language, source type and size, facts, parent), retried, edited (version),
-  deleted, a question answered or skipped (where the CV is now); an attempt started (model,
-  prompt version) and its draft saved (status, questions, verification counts, steps, tokens,
-  duration).
+  deleted, a batch of replies applied (how many answered and skipped, where the CV is now); an
+  attempt started (model, prompt version) and its draft saved (status, questions, verification
+  counts, steps, tokens, duration).
 - `debug`: the steps in between — the limits counted, a job queued, every status move (also
   the ones a compare-and-set refused; `inTransaction` when a rollback may still undo it), each agent step (finish reason, verdict, problems, tokens),
   a PDF rendered (bytes, ms), a refused login or upload.

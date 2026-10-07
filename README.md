@@ -64,7 +64,7 @@ per line. In development the lines can go through pino-pretty instead:
 |---|---|
 | `error` | what needs a look: an unhandled error (500), a stored CV that fails its schema, Redis or the queue failing, a failure that could not be recorded |
 | `warn` | what went wrong and was handled: a failed generation attempt (with its error code and whether it is retried), a PDF that could not be parsed, a lost job put back on the queue, any `4xx` answer (with its `errorCode`), a connection closed before the answer |
-| `info` | what a user or the worker did: signed up, logged in, PDF read, CV created, edited, deleted, retried, a question answered or skipped; a generation attempt started, its draft saved (status, questions, verification, steps, tokens, duration); every non-read request |
+| `info` | what a user or the worker did: signed up, logged in, PDF read, CV created, edited, deleted, retried, a batch of replies applied; a generation attempt started, its draft saved (status, questions, verification, steps, tokens, duration); every non-read request |
 | `debug` | the steps in between: the limits counted, a job queued, every status move, each step of the agent (its verdict, problems, tokens), the prompt, a PDF rendered, every successful read (`GET`, including the frontend's status polling) |
 
 **Which line belongs to what.**

@@ -272,8 +272,10 @@ describe('CVs before generation', () => {
       )
 
       const answered = await as(cookie)
-        .post(`/api/cvs/${id}/questions/${questionIds[1]}/answer`)
-        .send({ kind: 'text', value: 'Kafka' })
+        .post(`/api/cvs/${id}/replies`)
+        .send({
+          replies: [{ questionId: questionIds[1], answer: { kind: 'text', value: 'Kafka' } }],
+        })
       expect(answered.status).toBe(200)
       expect((await openQuestions()).get(id)).toBe(2)
     })
@@ -386,9 +388,8 @@ describe('CVs before generation', () => {
         () => bobs.get(`/api/cvs/${cv.id}/pdf`),
         () =>
           bobs
-            .post(`/api/cvs/${cv.id}/questions/${questionId}/answer`)
-            .send({ kind: 'text', value: 'x' }),
-        () => bobs.post(`/api/cvs/${cv.id}/questions/${questionId}/skip`),
+            .post(`/api/cvs/${cv.id}/replies`)
+            .send({ replies: [{ questionId, answer: { kind: 'text', value: 'x' } }] }),
       ]
       // one at a time: each request starts the test server
       for (const route of routes) expectError(await route(), 404, 'NOT_FOUND')

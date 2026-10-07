@@ -1,4 +1,4 @@
-import { type Answer, answerSchema, cvResponseSchema } from '@cv/shared'
+import { type RepliesBody, cvResponseSchema, repliesBodySchema } from '@cv/shared'
 import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common'
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { z } from 'zod'
@@ -11,45 +11,30 @@ type CvResponse = z.infer<typeof cvResponseSchema>
 
 /**
  * The questions of a CV (docs/api.md "Questions"). The body is checked here by its shape; the
- * service checks it against the question (its kind, its options).
+ * service checks each reply against its question (its kind, its options).
  */
 @ApiTags('questions')
 @ApiSession()
-@Controller('cvs/:id/questions/:questionId')
+@Controller('cvs/:id')
 export class QuestionsController {
   constructor(private readonly questions: QuestionsService) {}
 
-  @Post('answer')
+  @Post('replies')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Answer a question',
-    description: 'The answer goes into the CV as written; the CV may become `ready`.',
+    summary: 'Answer and skip questions together',
+    description:
+      'Every reply is checked first and nothing is applied if one fails; answers go into the CV ' +
+      'as written, a skip (`answer: null`) leaves its field as it is; the CV may become `ready`.',
   })
-  @ApiZodBody(answerSchema)
+  @ApiZodBody(repliesBodySchema)
   @ApiOkResponse({ standardSchema: cvResponseSchema })
   @ApiErrors('VALIDATION_ERROR', 'NOT_FOUND', 'INVALID_STATE')
-  async answer(
+  async reply(
     @CurrentUser() userId: string,
     @Param('id') id: string,
-    @Param('questionId') questionId: string,
-    @Body(new ZodValidationPipe(answerSchema)) body: Answer,
+    @Body(new ZodValidationPipe(repliesBodySchema)) body: RepliesBody,
   ): Promise<CvResponse> {
-    return { cv: await this.questions.answer(userId, id, questionId, body) }
-  }
-
-  @Post('skip')
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Skip a question',
-    description: 'The field stays empty; a `confirm` question cannot be skipped.',
-  })
-  @ApiOkResponse({ standardSchema: cvResponseSchema })
-  @ApiErrors('NOT_FOUND', 'INVALID_STATE')
-  async skip(
-    @CurrentUser() userId: string,
-    @Param('id') id: string,
-    @Param('questionId') questionId: string,
-  ): Promise<CvResponse> {
-    return { cv: await this.questions.skip(userId, id, questionId) }
+    return { cv: await this.questions.reply(userId, id, body.replies) }
   }
 }
