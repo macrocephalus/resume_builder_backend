@@ -50,11 +50,12 @@ backend/
 │   ├── worker.module.ts     config, logger, database, redis, cvs (services only), generation, agents
 │   ├── config/
 │   │   ├── env.schema.ts          Zod; parseEnv — a bad env stops the process with the variable's name
-│   │   ├── limits.ts              timeouts, session, throttles, JSON body; generations/hour, active, caps
+│   │   ├── limits.ts              timeouts, session, throttles, JSON body; generations/hour, active, caps;
+│   │   │                          worded answers/hour
 │   │   └── config.module.ts       ConfigModule.forRoot(env): the ENV token (global)
 │   ├── database/
 │   │   ├── schema/                users, cvs, cv-questions, generation-jobs,
-│   │   │                          generation-attempts, app-secrets, index (camelCase → snake_case)
+│   │   │                          generation-attempts, app-secrets, answer-wordings, index (camelCase → snake_case)
 │   │   ├── database.module.ts     the DATABASE token (Drizzle over one pg pool), closes the pool
 │   │   └── migrate.ts             runMigrations(url) over drizzle/, on its own connection
 │   ├── redis/
@@ -105,6 +106,9 @@ backend/
 │   │   │                          ≤ 4 active → 429 TOO_MANY_ACTIVE; usage
 │   │   ├── generation-limits.ts   the GENERATION_LIMITS token (per hour, active); tests bind less
 │   │   ├── hourly-window.ts       pure: used, resetsAt, Retry-After of the sliding hour
+│   │   ├── wording-budget.service.ts  take (the user's row locked): worded answers per hour
+│   │   ├── wording-budget.ts      the WORDING_BUDGET token; pure: how many may be worded
+│   │   ├── user-window.ts         lockUser, createdWithin: what both limits count by
 │   │   └── usage.controller.ts    GET /api/usage
 │   ├── generation/
 │   │   ├── generation-queue.module.ts  the queue + producer (api and worker; below cvs)
@@ -132,7 +136,8 @@ backend/
 │   │   ├── check-replies.ts           pure: every reply against its question and the draft, all
 │   │   │                              or none; 404 / 409 at the first, 400s keyed by reply
 │   │   ├── apply-replies.ts           pure: a checked batch → the draft and the facts after it
-│   │   ├── answer-wording.service.ts  one fast-model call for a batch; as written when it fails
+│   │   ├── answer-wording.service.ts  one fast-model call for a batch; as written past the
+│   │   │                              budget or when it fails
 │   │   ├── wording-request.ts         pure: which answers are worded; which results are accepted
 │   │   ├── fact-of.ts                 pure: an answer → the { question, answer } kept in facts
 │   │   ├── new-question.ts            a question before it is stored; targetKey
@@ -262,9 +267,14 @@ Automatic retries are BullMQ's own (`attempts: 3`, exponential backoff from 5 s)
 `attempt`, `status` (`running|succeeded|failed`), `model`, `prompt_version`, `agent_steps`,
 `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `duration_ms`, `error`, `created_at`, `finished_at`. Audit only.
 
+**answer_wordings** — one row per wording call (§3a): `id`, `user_id → users, cascade`, `answers`
+(how many of the batch were sent to the model), `created_at`. The wording budget sums these
+rows; like `generation_jobs`, they outlive the CV.
+
 **app_secrets** — `name text pk`, `value text`. Holds the JWT secret (§6).
 
 Every foreign key has an index; `generation_jobs (user_id, created_at)` serves the hourly count,
+`answer_wordings (user_id, created_at)` the wording budget,
 `cvs (status, created_at)` the recovery and, with `generation_jobs (cv_id)`, the queue position.
 
 No `cv_sources` table and no job-level status: [adr/0002](adr/0002-one-cv-status-no-source-table.md).
@@ -391,6 +401,16 @@ an API error, an output that fails the schema, a missing id, a result out of sha
 puts that answer (or the batch) in as written (`applyAnswer`), logged at `warn`. Facts and
 `question.answer` keep the raw answer.
 
+A cost guard caps the calls: at most 60 answers per user are sent to the model in a sliding hour
+(`ANSWER_WORDING_BUDGET` in `config/limits.ts`). `WordingBudgetService.take` runs before the call:
+under the user's row lock (the one a generation start takes) it sums the user's
+`answer_wordings` rows of the window on the database's clock, grants what is left and writes a
+row for it, so the count is shared by every api instance and two batches at once don't both take
+the last answers. The first answers of the batch up to the grant are worded, the rest go in as
+written, logged at `info` once per batch. It is never a `429` and isn't shown in
+`GET /api/usage`. An answer counts once it is sent, whether or not its result is used; a
+budget that can't be counted (a database error) puts the batch's answers in as written, at `warn`.
+
 ## 4. Verification — keeping the AI from inventing facts
 
 Every **claim** about the person in the CV must rest on `source_text` or on `facts` (the user's
@@ -501,7 +521,7 @@ error makes BullMQ run the job again, and the next attempt takes the CV over.
   storage) and pdf.js reads only its text layer; the minimum of 50 characters counts visible
   ones, so a scan with stray whitespace still gets `422`.
 - Known simplifications (README): JWT can't be revoked before expiry; signup reveals that an email
-  is taken; answers have no hourly limit; pdf.js parses an upload on the api's event loop, so a
+  is taken; pdf.js parses an upload on the api's event loop, so a
   crafted 5 MB PDF can slow other requests for a moment (bounded by the size, page and per-user
   limits; a worker thread would remove it).
 
@@ -529,7 +549,8 @@ the variables; how to switch them for each way of running: `README.md`, "Logging
   unbacked: inserted as written).
 - `info`: what a user or the worker did — signed up, logged in, PDF read (pages, chars), CV
   created (language, source type and size, facts, parent), retried, edited (version),
-  deleted, a batch of replies applied (how many answered and skipped, where the CV is now); an
+  deleted, a batch of replies applied (how many answered and skipped, where the CV is now), its
+  answers worded, or the wording budget used up (how many answers, how many were sent); an
   attempt started (model, prompt version) and its draft saved (status, questions, verification
   counts, steps, tokens, duration).
 - `debug`: the steps in between — the limits counted, a job queued, every status move (also
@@ -587,7 +608,8 @@ Vitest everywhere, `supertest` for API e2e, `unplugin-swc` for decorators. The f
 only in tests (swapped in through the model factory's DI token); there is no runtime switch. The
 e2e tests also replace the `GENERATION_TIMING` token: a 300 ms backoff, and per test a short
 attempt timeout or recovery period, so retries, timeouts and recovery run in about a second; and
-the `GENERATION_LIMITS` token (5 per hour, 2 active), so a test reaches a limit in a few requests.
+the `GENERATION_LIMITS` token (5 per hour, 2 active), so a test reaches a limit in a few requests,
+and the `WORDING_BUDGET` token (2 per hour in the answer wording tests).
 The window moves by backdating `generation_jobs.created_at`.
 e2e runs against Postgres and Redis from `compose.yaml` (`cv_test` database, own BullMQ prefix,
 tables truncated between tests); unit tests of pure functions need neither. `pnpm test:e2e` connects

@@ -1,6 +1,6 @@
 /**
  * The numbers the server is tuned by, in one place: timeouts, generation and its limits, the
- * session, throttles and the questions of a draft.
+ * budget of answer wording, the session, throttles and the questions of a draft.
  */
 export const TIMEOUTS = {
   /** A Postgres connection that cannot be made fails fast, so `/api/health` answers 503. */
@@ -38,6 +38,17 @@ export const GENERATION = {
   recoveryMs: 60_000,
   /** How long a failed BullMQ job stays in Redis for debugging; Postgres keeps the outcome. */
   failedJobKeepSeconds: 24 * 60 * 60,
+} as const
+
+/**
+ * Answer wording (root `docs/architecture.md` §6.5): a cost guard, never a refusal. Past it a
+ * user's answers go in as written; it is not shown in `GET /api/usage`.
+ */
+export const ANSWER_WORDING_BUDGET = {
+  /** Answers of one user sent to the fast model in any `windowMs`. */
+  perHour: 60,
+  /** The sliding window of `perHour`. */
+  windowMs: 3_600_000,
 } as const
 
 export const SESSION = {

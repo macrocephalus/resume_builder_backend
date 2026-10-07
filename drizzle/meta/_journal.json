@@ -15,6 +15,13 @@
       "when": 1791287342409,
       "tag": "0001_cv_version_starts_at_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791374075294,
+      "tag": "0002_answer_wordings",
+      "breakpoints": true
     }
   ]
 }

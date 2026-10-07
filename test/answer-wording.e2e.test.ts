@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { WordedAnswer } from '../src/agents/answer/answer-wording.schema'
 import { DATABASE, type Database } from '../src/database/database.module'
 import { cvs } from '../src/database/schema'
+import { WORDING_BUDGET_DEFAULTS } from '../src/limits/wording-budget'
 import { type TestApp, createTestApp } from './helpers/app'
 import { JOB, needsInput as needsInputFor, question } from './helpers/draft'
 import { SOURCE_TEXT, hangingModel, textStep } from './helpers/model'
@@ -30,6 +31,9 @@ type Respond = (ids: string[]) => Array<Partial<WordedAnswer> & { id: string }> 
 
 const NOTHING = { bullets: [], sentence: null, title: null, company: null, period: null }
 
+/** Each test signs up its own user, so only the budget test words more than one answer. */
+const BUDGET = { ...WORDING_BUDGET_DEFAULTS, perHour: 2 }
+
 describe('answer wording', () => {
   let app: TestApp
   let db: Database
@@ -52,7 +56,7 @@ describe('answer wording', () => {
         )
       },
     })
-    app = await createTestApp({}, { fastModel })
+    app = await createTestApp({}, { fastModel, wordingBudget: BUDGET })
     db = app.app.get<Database>(DATABASE)
   })
 
@@ -238,5 +242,46 @@ describe('answer wording', () => {
       }),
     )
     expect(cv.data?.experience[1]).toMatchObject(asWritten)
+  })
+
+  it('inserts answers as written past the budget, without refusing them', async () => {
+    respond = (ids) =>
+      ids.map((id) => ({
+        id,
+        bullets: ['Served about 300 companies'],
+        sentence: 'Mentors 3 junior engineers.',
+      }))
+    const AGAIN = question('text', { section: 'experience', itemId: JOB, field: 'bullets' })
+    const { cookie, id, questionIds } = await needsInputFor(app, SCALE, MORE, LAST_JOB, AGAIN)
+    const [scale, more, lastJob, again] = questionIds
+
+    cvOf(await reply(cookie, id, scaleAnswer(scale)))
+    // one answer of the budget left: the first of the batch is worded, the next goes in as written
+    const cv = cvOf(
+      await reply(
+        cookie,
+        id,
+        { questionId: more, answer: { kind: 'text', value: 'i mentor 3 juniors' } },
+        { questionId: lastJob, answer: { kind: 'text', value: JOB_ANSWER } },
+      ),
+    )
+    expect(prompts).toHaveLength(2)
+    expect([...(prompts[1] ?? '').matchAll(ANSWER_ID)].map((match) => match[1])).toEqual([more])
+    expect(cv.data?.summary).toMatch(/Mentors 3 junior engineers\.$/)
+    expect(cv.data?.experience[1]).toMatchObject(asWritten)
+
+    const last = cvOf(
+      await reply(cookie, id, {
+        questionId: again,
+        answer: { kind: 'text', value: 'about 40 engineers' },
+      }),
+    )
+    expect(prompts).toHaveLength(2)
+    expect(last.data?.experience[0]?.bullets).toEqual([
+      'Built the payments API',
+      'Served about 300 companies',
+      'about 40 engineers',
+    ])
+    expect(last.status).toBe('ready')
   })
 })

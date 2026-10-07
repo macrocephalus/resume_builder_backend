@@ -8,6 +8,11 @@ import { AppModule } from '../../src/app.module'
 import type { Env } from '../../src/config/env.schema'
 import { GENERATION_TIMING } from '../../src/generation/generation.queue'
 import { GENERATION_LIMITS } from '../../src/limits/generation-limits'
+import {
+  WORDING_BUDGET,
+  WORDING_BUDGET_DEFAULTS,
+  type WordingBudget,
+} from '../../src/limits/wording-budget'
 import { ANSWER_WORDING_TIMEOUT } from '../../src/questions/answer-wording.service'
 import { setupApp } from '../../src/setup-app'
 import { TEST_LIMITS, TEST_TIMING, testEnv } from './env'
@@ -27,11 +32,14 @@ export const TEST_WORDING_TIMEOUT_MS = 300
  * The api as `main.ts` builds it, on the test database, listening on no port, with the tests'
  * generation timing and small limits. `overrides` replaces parts of the test env, e.g. `JWT_SECRET`.
  * `fastModel` words the answers; by default a model that fails every call, so answers go in as
- * written and no test reaches Anthropic.
+ * written and no test reaches Anthropic. `wordingBudget` replaces the production one.
  */
 export const createTestApp = async (
   overrides: Partial<Env> = {},
-  { fastModel = scriptedModel() }: { fastModel?: LanguageModel } = {},
+  {
+    fastModel = scriptedModel(),
+    wordingBudget = WORDING_BUDGET_DEFAULTS,
+  }: { fastModel?: LanguageModel; wordingBudget?: WordingBudget } = {},
 ): Promise<TestApp> => {
   const env = { ...testEnv(), ...overrides }
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
@@ -43,6 +51,8 @@ export const createTestApp = async (
     .useValue(fastModel)
     .overrideProvider(ANSWER_WORDING_TIMEOUT)
     .useValue(TEST_WORDING_TIMEOUT_MS)
+    .overrideProvider(WORDING_BUDGET)
+    .useValue(wordingBudget)
     .compile()
   const app = moduleRef.createNestApplication<NestExpressApplication>()
   setupApp(app, env)
