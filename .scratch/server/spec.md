@@ -1,6 +1,6 @@
 # Spec: the server, built to the contract
 
-Status: ready-for-agent
+Status: done
 Package: backend
 Sources: `docs/api.md`, `docs/cv-statuses.md`, `@cv/shared` (`shared/`), root decisions log
 `.scratch/backend/decisions.md`, frontend mocks `frontend/src/mocks` (how the server behaves),
