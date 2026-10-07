@@ -1,12 +1,13 @@
 import { CV_STATUSES, type Usage, isInProgress } from '@cv/shared'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, count, eq, gt, inArray, min, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, min, sql } from 'drizzle-orm'
 import { PinoLogger } from 'nestjs-pino'
 import { AppError } from '../common/errors/app-error'
 import { DATABASE, type Database, type Executor } from '../database/database.module'
-import { cvs, generationJobs, users } from '../database/schema'
+import { cvs, generationJobs } from '../database/schema'
 import { GENERATION_LIMITS, type GenerationLimits } from './generation-limits'
 import { type HourlyWindow, hourlyWindow } from './hourly-window'
+import { createdWithin, lockUser } from './user-window'
 
 const IN_PROGRESS = CV_STATUSES.filter(isInProgress)
 
@@ -41,8 +42,7 @@ export class LimitsService {
    * same moment count one after the other, so the second sees the first.
    */
   async assertCanStart(userId: string, tx: Executor): Promise<void> {
-    // the weakest lock two starts conflict on; inserts that only reference the user don't wait
-    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('no key update')
+    await lockUser(tx, userId)
     const hourly = await this.hourly(userId, tx)
     const active = hourly.full ? null : await this.active(userId, tx)
     this.logger.debug(
@@ -85,10 +85,7 @@ export class LimitsService {
       .where(
         and(
           eq(generationJobs.userId, userId),
-          gt(
-            generationJobs.createdAt,
-            sql`now() - ${this.allowed.windowMs} * interval '1 millisecond'`,
-          ),
+          createdWithin(generationJobs.createdAt, this.allowed.windowMs),
         ),
       )
     if (!row) throw new Error('count() returned no row')
