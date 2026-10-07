@@ -6,6 +6,7 @@ import type {
 } from '../draft/draft-submission.schema'
 import type { PromptFact } from '../prompt/prompt-fact'
 import { containsWord, digitsOf, linkKey, normalise, numbersIn } from './normalise'
+import { skillLikeWords } from './skill-like'
 
 export const VERIFY_LIMITS = {
   /** A bullet's quote must be at least this long, so it can't be a stray word. */
@@ -92,24 +93,7 @@ const FIELD_RULES: Record<ItemSection, Readonly<Record<string, FieldRule>>> = {
 // a phone as people write it: digits with spaces, brackets, dots and dashes between them
 const PHONE = /\+?\d[\d ().-]{5,}\d/g
 
-// words that look like technology names: Node.js, .NET, C++, C#, PostgreSQL, AWS, K8s
-const SKILL_LIKE = [
-  /\p{L}\.\p{L}{2,}/u,
-  /^\.\p{L}/u,
-  /\p{L}[+#]+$/u,
-  /\p{Ll}\p{Lu}/u,
-  /^\p{Lu}{2,}$/u,
-  /\p{L}\p{N}|\p{N}\p{L}/u,
-]
-
 const isFilled = (value: string | null): value is string => value !== null && value.trim() !== ''
-
-/** The words of a text without the punctuation around them ("(Node.js)," → "Node.js"). */
-const wordsOf = (text: string): string[] =>
-  text
-    .split(/\s+/)
-    .map((word) => word.replace(/^[^\p{L}\p{N}.]+|[^\p{L}\p{N}+#]+$/gu, ''))
-    .filter((word) => word !== '')
 
 /** A text field of an item by name; `null` when it is empty or not text (the bullets). */
 const fieldValue = (item: Readonly<Record<string, unknown>>, field: string): string | null => {
@@ -251,9 +235,7 @@ export const verifyDraft = (
       if (!corpusNumbers.has(number))
         report({ kind: 'summary', token: number }, REASONS.summaryNumber(number))
     }
-    const skillLike = wordsOf(cv.summary)
-      .filter((word) => SKILL_LIKE.some((pattern) => pattern.test(word)))
-      .map(normalise)
+    const skillLike = skillLikeWords(cv.summary).map(normalise)
     const named = cv.skills.map(normalise).filter((skill) => containsWord(summary, skill))
     const tokens = [...new Set([...skillLike, ...named])]
       .filter((token) => !containsWord(corpus, token) && !verifiedSkills.has(token))
