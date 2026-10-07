@@ -363,19 +363,32 @@ is never replaced; a model question about the whole skills block is dropped when
 
 ### 3a. Answer wording
 
-A free-text answer (`text`, or the "Other" of a `choice`) to the bullets of an experience or
-project item is turned into 1–3 bullets in the CV language by **one `generateText` call with
-`Output.object`** on the fast model (`FAST_LANGUAGE_MODEL`, `ANTHROPIC_FAST_MODEL`, default
-`claude-haiku-4-5`) — no tools, no loop (root [adr/0002](../../docs/adr/0002-answer-wording-inside-the-request.md)).
-`QuestionsService.reply` checks the batch, words its answers (`AnswerWordingService`), then checks
-it again under the lock and applies it; the call runs outside the transaction, so no row lock is
-held while the model answers. One call per batch; it sees the question, the answer, the CV
-language, the target role and the item (title, company, bullets), never the source. The model
-returns per answer id its bullets, `[]` for an answer with nothing for the CV. A result is used
-only when `unbackedInWording` finds nothing: every number in the answer, every technology-like
-word in the answer or the source. A timeout (`ANSWER_WORDING_LIMITS.timeoutMs`, 15 s, the e2e
-tests shorten it), an API error, an output that fails the schema, a missing id or an unbacked
-word → that answer (or the batch) goes in as written (`applyAnswer`), logged at `warn`. Facts and
+A free-text answer (`text`, or the "Other" of a `choice`) is turned into CV text in the CV
+language:
+
+- to the bullets of an experience or project item: 1–3 bullets, appended;
+- to the summary: one sentence (≤ 300 chars), appended; the summary itself is never rewritten;
+- to the whole experience block: one new job with 1–6 bullets, and the title, company and period
+  the answer names (title and company copied as the answer writes them).
+
+It takes **one `generateText` call with `Output.object`** on the fast model
+(`FAST_LANGUAGE_MODEL`, `ANTHROPIC_FAST_MODEL`, default `claude-haiku-4-5`) — no tools, no loop
+(root [adr/0002](../../docs/adr/0002-answer-wording-inside-the-request.md)). `QuestionsService.reply`
+checks the batch, words its answers (`AnswerWordingService`), then checks it again under the lock
+and applies it; the call runs outside the transaction, so no row lock is held while the model
+answers. One call per batch; it sees the question, the answer, the CV language, the target role
+and the target's context (the item's title, company and bullets, or the summary; nothing for a
+new job), never the source. The model returns per answer id every field (`bullets`, `sentence`,
+`title`, `company`, `period`), empty where its kind has none or the answer gives nothing for the
+CV; the code reads only its kind's.
+
+A result is used only when it keeps its kind's shape (the bullet counts and sentence length
+above, a new job with at least one bullet) and states nothing the answer doesn't:
+`unbackedInWording` finds no number outside the answer and no technology-like word outside the
+answer and the source, and a new job's title and company appear in the answer as whole words.
+Everything else — a timeout (`ANSWER_WORDING_LIMITS.timeoutMs`, 15 s; the e2e tests shorten it),
+an API error, an output that fails the schema, a missing id, a result out of shape or unbacked —
+puts that answer (or the batch) in as written (`applyAnswer`), logged at `warn`. Facts and
 `question.answer` keep the raw answer.
 
 ## 4. Verification — keeping the AI from inventing facts

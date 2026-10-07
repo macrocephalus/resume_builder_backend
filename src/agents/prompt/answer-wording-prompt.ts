@@ -6,19 +6,33 @@ import { ANSWER_WORDING_SYSTEM } from './system/answer-wording.system'
 const tag = (name: string, content: string): string =>
   `<${name}>${escapeTagContent(content)}</${name}>`
 
-const jobOf = ({ item }: AnswerToWord): string =>
-  [
-    `Title: ${item.title ?? '(none)'}`,
-    `Company: ${item.company ?? '(none)'}`,
-    ...item.bullets.map((bullet) => `- ${bullet}`),
-  ].join('\n')
+/** What an answer of its kind is added to, as the model sees it; nothing for a new job. */
+const contextOf = (answer: AnswerToWord): string[] => {
+  switch (answer.kind) {
+    case 'bullets':
+      return [
+        tag(
+          'job',
+          [
+            `Title: ${answer.item.title ?? '(none)'}`,
+            `Company: ${answer.item.company ?? '(none)'}`,
+            ...answer.item.bullets.map((bullet) => `- ${bullet}`),
+          ].join('\n'),
+        ),
+      ]
+    case 'summary':
+      return [tag('summary', answer.summary ?? '(none)')]
+    case 'job':
+      return []
+  }
+}
 
 const answerOf = (answer: AnswerToWord): string =>
   [
-    `<answer id="${escapeTagContent(answer.id)}">`,
+    `<answer id="${escapeTagContent(answer.id)}" kind="${answer.kind}">`,
     tag('question', answer.question),
     tag('reply', answer.answer),
-    tag('job', jobOf(answer)),
+    ...contextOf(answer),
     '</answer>',
   ].join('\n')
 

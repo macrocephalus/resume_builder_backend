@@ -7,7 +7,7 @@ import { CONTENT } from '../common/logging/logger-options'
 import { safeError } from '../common/logging/safe-error'
 import { type CvRow, requireDraft } from '../cvs/cv.mapper'
 import type { CheckedReply } from './check-replies'
-import { type WordedBullets, acceptWording, answersToWord } from './wording-request'
+import { type WordedAnswers, acceptWording, answersToWord } from './wording-request'
 
 /** How long one wording call may take; the e2e tests shorten it. */
 export const ANSWER_WORDING_TIMEOUT = Symbol('ANSWER_WORDING_TIMEOUT')
@@ -27,7 +27,7 @@ export class AnswerWordingService {
     this.logger.setContext(AnswerWordingService.name)
   }
 
-  async word(cv: CvRow, replies: readonly CheckedReply[]): Promise<WordedBullets> {
+  async word(cv: CvRow, replies: readonly CheckedReply[]): Promise<WordedAnswers> {
     const toWord = answersToWord(requireDraft(cv), replies)
     if (toWord.length === 0) return new Map()
     const startedAt = Date.now()

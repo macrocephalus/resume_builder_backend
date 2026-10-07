@@ -3,6 +3,7 @@ import { MockLanguageModelV4 } from 'ai/test'
 import { eq } from 'drizzle-orm'
 import request from 'supertest'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import type { WordedAnswer } from '../src/agents/answer/answer-wording.schema'
 import { DATABASE, type Database } from '../src/database/database.module'
 import { cvs } from '../src/database/schema'
 import { type TestApp, createTestApp } from './helpers/app'
@@ -16,12 +17,18 @@ const SCALE = question(
 )
 const PERIOD = question('text', { section: 'experience', itemId: JOB, field: 'period' })
 const PHONE = question('text', { section: 'contacts', field: 'phone' })
+const MORE = question('text', { section: 'summary' }, { text: 'Anything to add about you?' })
+const LAST_JOB = question('text', { section: 'experience' }, { text: 'Your most recent job?' })
+const JOB_ANSWER =
+  'Senior Dev at Acme Corp, 2016-2019. Built the billing service, cut invoice errors by 30%'
 
 /** An answer block of the prompt as JSON writes it; the instructions name the tag too. */
-const ANSWER_ID = /<answer id=\\"([0-9a-f-]{36})\\">/g
+const ANSWER_ID = /<answer id=\\"([0-9a-f-]{36})\\" kind/g
 
-/** What the scripted fast model answers, given the answer ids of the prompt. */
-type Respond = (ids: string[]) => Array<{ id: string; bullets: string[] }> | 'hang'
+/** What the scripted fast model answers, given the answer ids of the prompt; unset fields empty. */
+type Respond = (ids: string[]) => Array<Partial<WordedAnswer> & { id: string }> | 'hang'
+
+const NOTHING = { bullets: [], sentence: null, title: null, company: null, period: null }
 
 describe('answer wording', () => {
   let app: TestApp
@@ -40,7 +47,9 @@ describe('answer wording', () => {
         const ids = [...prompt.matchAll(ANSWER_ID)].map((match) => match[1] ?? '')
         const answers = respond(ids)
         if (answers === 'hang') return hanging.doGenerate(options)
-        return textStep(JSON.stringify({ answers }))
+        return textStep(
+          JSON.stringify({ answers: answers.map((answer) => ({ ...NOTHING, ...answer })) }),
+        )
       },
     })
     app = await createTestApp({}, { fastModel })
@@ -159,5 +168,75 @@ describe('answer wording', () => {
     await db.update(cvs).set({ status: 'ready' }).where(eq(cvs.id, id))
     expect((await reply(cookie, id, scaleAnswer(questionIds[0]))).status).toBe(409)
     expect(prompts).toEqual([])
+  })
+
+  it('appends a worded sentence to the summary, which is not rewritten', async () => {
+    respond = (ids) => ids.map((id) => ({ id, sentence: 'Mentors 3 junior engineers.' }))
+    const { cookie, id, questionIds } = await needsInputFor(app, MORE)
+    const cv = cvOf(
+      await reply(cookie, id, {
+        questionId: questionIds[0],
+        answer: { kind: 'text', value: 'i mentor 3 juniors' },
+      }),
+    )
+    expect(cv.data?.summary).toBe(
+      'Backend engineer with eight years of Node.js and PostgreSQL in payments. Mentors 3 junior engineers.',
+    )
+    expect(prompts[0]).toContain('kind=\\"summary\\"')
+  })
+
+  it('adds a worded new job with its title, company, dates and bullets', async () => {
+    respond = (ids) =>
+      ids.map((id) => ({
+        id,
+        title: 'Senior Dev',
+        company: 'Acme Corp',
+        period: '2016 – 2019',
+        bullets: ['Built the billing service', 'Cut invoice errors by 30%'],
+      }))
+    const { cookie, id, questionIds } = await needsInputFor(app, LAST_JOB)
+    const cv = cvOf(
+      await reply(cookie, id, {
+        questionId: questionIds[0],
+        answer: { kind: 'text', value: JOB_ANSWER },
+      }),
+    )
+    expect(cv.data?.experience).toHaveLength(2)
+    expect(cv.data?.experience[1]).toMatchObject({
+      title: 'Senior Dev',
+      company: 'Acme Corp',
+      period: '2016 – 2019',
+      bullets: ['Built the billing service', 'Cut invoice errors by 30%'],
+    })
+    expect(await factsOf(id)).toEqual([{ question: LAST_JOB.text, answer: JOB_ANSWER }])
+  })
+
+  /** The job an answer as written makes: its lines as bullets, every field empty. */
+  const asWritten = { title: null, company: null, period: null, bullets: [JOB_ANSWER] }
+
+  it('inserts the job as written when its title is not in the answer', async () => {
+    respond = (ids) =>
+      ids.map((id) => ({ id, title: 'Lead Engineer', bullets: ['Built the billing service'] }))
+    const { cookie, id, questionIds } = await needsInputFor(app, LAST_JOB)
+    const cv = cvOf(
+      await reply(cookie, id, {
+        questionId: questionIds[0],
+        answer: { kind: 'text', value: JOB_ANSWER },
+      }),
+    )
+    expect(cv.data?.experience[1]).toMatchObject(asWritten)
+  })
+
+  it('inserts the job as written when its period has a year the answer does not give', async () => {
+    respond = (ids) =>
+      ids.map((id) => ({ id, period: '2015 – 2019', bullets: ['Built the billing service'] }))
+    const { cookie, id, questionIds } = await needsInputFor(app, LAST_JOB)
+    const cv = cvOf(
+      await reply(cookie, id, {
+        questionId: questionIds[0],
+        answer: { kind: 'text', value: JOB_ANSWER },
+      }),
+    )
+    expect(cv.data?.experience[1]).toMatchObject(asWritten)
   })
 })
