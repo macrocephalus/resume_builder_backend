@@ -5,7 +5,7 @@ import { draftSubmissionSchema } from '../draft/draft-submission.schema'
 import { SUBMIT_DRAFT_DESCRIPTION } from '../draft/tools/submit-draft.tool'
 import { escapeTagContent } from './escape-tags'
 import type { PromptFact } from './prompt-fact'
-import { DRAFT_EXAMPLE } from './system/draft.example'
+import { DRAFT_EXAMPLE, DRAFT_EXAMPLE_LANGUAGE, DRAFT_EXAMPLE_SOURCE } from './system/draft.example'
 import { DRAFT_SYSTEM } from './system/draft.system'
 
 export type PromptInput = {
@@ -22,8 +22,19 @@ export type PromptInput = {
 export const DRAFT_INSTRUCTIONS = `${DRAFT_SYSTEM}
 
 # Example
-The shape of one answer. The person is made up; use none of its content.
+One source and the submit_draft input that is accepted for it on the first call. The person is
+made up; use none of its content. The CV is in ${DRAFT_EXAMPLE_LANGUAGE} and the source is not,
+so translated values carry quotes in the source's language; values copied as written (the
+company "Sample Pay", the skills) need none.
+<example_source>
+${DRAFT_EXAMPLE_SOURCE}
+</example_source>
 ${JSON.stringify(DRAFT_EXAMPLE, null, 2)}`
+
+/** Closes the user message: the task after the data it is about. Static, like the instructions. */
+export const DRAFT_TASK =
+  'Write the CV for <target_role> in <cv_language> from <source> and <user_facts>, following ' +
+  '"How to work", and answer with one submit_draft call that passes "Before you submit".'
 
 /**
  * A hash of everything static the model sees (instructions, the tool's description and schema),
@@ -46,7 +57,8 @@ const factsText = (facts: readonly PromptFact[]): string =>
 
 /**
  * `{ instructions, message }` for the DraftAgent (backend architecture §3): static first, user
- * data last, the long and stable tags before the short ones, every value escaped.
+ * data last, the long and stable tags before the short ones, every value escaped; the message
+ * ends with the task.
  */
 export const buildPrompt = (input: PromptInput): { instructions: string; message: string } => {
   const message = [
@@ -58,6 +70,8 @@ export const buildPrompt = (input: PromptInput): { instructions: string; message
     tag('role_context', input.roleContext ?? '(none)'),
     tag('cv_language', getCvLanguage(input.language).englishName),
     tag('today', input.today.toISOString().slice(0, 10)),
+    '',
+    DRAFT_TASK,
   ].join('\n')
   return { instructions: DRAFT_INSTRUCTIONS, message }
 }

@@ -9,8 +9,12 @@ export const SUBMIT_DRAFT_DESCRIPTION = [
   'Submit the whole CV draft. This is the only way to answer.',
   'Send every block, with an evidence quote for each claim, the questions for what the source',
   'does not say, the requirements of the target role and up to three other suitable roles.',
-  'The result says whether the draft was accepted; if not, it lists the problems to fix before',
-  'you submit the whole draft again.',
+  'The draft is checked against the source and the user facts: bullets by their quotes, names,',
+  'dates, contacts and skills by the source text, the summary for numbers and technologies the',
+  'source does not state, and the question targets.',
+  'The result is { "accepted": true }, which ends the work, or { "accepted": false, "problems" },',
+  'one line per path to fix before you submit the whole draft again. Calls are few: check the',
+  'draft before the first one.',
 ].join(' ')
 
 /** What the tool answers the model with. */
